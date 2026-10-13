@@ -3,7 +3,7 @@ import { MAX_DT, FONT_TITLE } from './config.js';
 import { Input } from './input.js';
 import { SoundFx } from './audio.js';
 import { createStorage } from './storage.js';
-import { createProfile } from './profile.js';
+import { createAuth } from './auth.js';
 import { createDb } from './db.js';
 import { Persistence } from './persistence.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './db-config.js';
@@ -13,12 +13,13 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
 const storage = createStorage();
-const profile = createProfile();
-const db = createDb({ url: SUPABASE_URL, key: SUPABASE_ANON_KEY });
-const persistence = new Persistence({ db, profile, storage });
+const auth = createAuth({ url: SUPABASE_URL, key: SUPABASE_ANON_KEY });
+const db = createDb({ url: SUPABASE_URL, key: SUPABASE_ANON_KEY, getToken: () => auth.getToken() });
+const persistence = new Persistence({ db, auth, storage });
 const audio = new SoundFx();
 const input = new Input(window, () => audio.init());
-const game = new Game({ input, audio, storage, persistence, profile });
+const game = new Game({ input, audio, storage, persistence, auth });
+auth.onSessionLost = () => game.onSessionLost();
 
 // Ukryta karta → automatyczna pauza
 document.addEventListener('visibilitychange', () => {
