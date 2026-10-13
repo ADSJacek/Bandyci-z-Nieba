@@ -56,8 +56,8 @@ test('niedostępny localStorage — gra działa dalej bez rekordów', () => {
     assert.equal(storage.saveHighscores({ latwy: 1, normalny: 1, trudny: 1 }), false);
     assert.equal(storage.loadMuted(), false);
     assert.equal(storage.saveMuted(true), false);
-    assert.equal(storage.loadLocalSave(), null);
-    assert.equal(storage.saveLocalSave({ version: 1 }), false);
+    assert.equal(storage.loadLocalSave('gosc'), null);
+    assert.equal(storage.saveLocalSave('gosc', { version: 1 }), false);
     assert.deepEqual(storage.loadScoreQueue(), []);
     assert.equal(storage.saveScoreQueue([{ score: 1 }]), false);
   }
@@ -76,15 +76,25 @@ test('updateHighscore: nowy rekord tylko przy wyższym wyniku', () => {
 test('kopia lokalna przerwanej gry: zapis, odczyt, uszkodzone dane', () => {
   const backend = mockStorage();
   const storage = createStorage(backend);
-  assert.equal(storage.loadLocalSave(), null);
-  assert.equal(storage.saveLocalSave({ version: 1, savedAt: 5, score: 10 }), true);
-  assert.deepEqual(storage.loadLocalSave(), { version: 1, savedAt: 5, score: 10 });
-  backend.data[SAVED_GAME_KEY] = '{zepsute';
-  assert.equal(storage.loadLocalSave(), null);
-  backend.data[SAVED_GAME_KEY] = '42';
-  assert.equal(storage.loadLocalSave(), null);
-  backend.data[SAVED_GAME_KEY] = '[1,2]';
-  assert.equal(storage.loadLocalSave(), null);
+  const key = `${SAVED_GAME_KEY}:gosc`;
+  assert.equal(storage.loadLocalSave('gosc'), null);
+  assert.equal(storage.saveLocalSave('gosc', { version: 1, savedAt: 5, score: 10 }), true);
+  assert.deepEqual(storage.loadLocalSave('gosc'), { version: 1, savedAt: 5, score: 10 });
+  backend.data[key] = '{zepsute';
+  assert.equal(storage.loadLocalSave('gosc'), null);
+  backend.data[key] = '42';
+  assert.equal(storage.loadLocalSave('gosc'), null);
+  backend.data[key] = '[1,2]';
+  assert.equal(storage.loadLocalSave('gosc'), null);
+});
+
+test('kopie lokalne gościa i kont są rozdzielne', () => {
+  const storage = createStorage(mockStorage());
+  storage.saveLocalSave('gosc', { score: 1 });
+  storage.saveLocalSave('u-1', { score: 2 });
+  assert.deepEqual(storage.loadLocalSave('gosc'), { score: 1 });
+  assert.deepEqual(storage.loadLocalSave('u-1'), { score: 2 });
+  assert.equal(storage.loadLocalSave('u-2'), null);
 });
 
 test('kolejka wyników: zapis, odczyt, limit najnowszych', () => {

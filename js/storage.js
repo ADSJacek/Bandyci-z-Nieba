@@ -91,14 +91,14 @@ export function createStorage(backend = defaultBackend()) {
       }
     },
 
-    // Kopia przerwanej gry — zapasowe źródło wznowienia, gdy baza jest niedostępna
-    loadLocalSave() {
-      const data = readJson(SAVED_GAME_KEY);
+    // Kopia przerwanej gry — osobna dla gościa ('gosc') i każdego konta (id użytkownika)
+    loadLocalSave(owner) {
+      const data = readJson(`${SAVED_GAME_KEY}:${owner}`);
       return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
     },
 
-    saveLocalSave(data) {
-      return writeJson(SAVED_GAME_KEY, data);
+    saveLocalSave(owner, data) {
+      return writeJson(`${SAVED_GAME_KEY}:${owner}`, data);
     },
 
     // Wyniki, których nie udało się wysłać do bazy
