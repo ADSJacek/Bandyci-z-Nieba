@@ -146,3 +146,13 @@ export const DEFAULT_DIFFICULTY = 'normalny';
 export function getDifficulty(key) {
   return DIFFICULTIES[key] ?? DIFFICULTIES[DEFAULT_DIFFICULTY];
 }
+
+// Zapis wyników i przerwanej gry (Supabase + kopia w localStorage)
+export const PERSISTENCE = {
+  autosaveInterval: 10,  // s między automatycznymi zapisami w trakcie gry
+  dbTimeoutMs: 5000,     // limit czasu jednego zapytania do bazy
+  leaderboardSize: 10,   // TOP N w menu
+  historySize: 10,       // ostatnie N gier gracza
+  scoreQueueMax: 20,     // maks. niewysłanych wyników w kolejce offline
+  nickMaxLength: 12,
+};

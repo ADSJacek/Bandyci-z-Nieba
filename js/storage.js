@@ -1,15 +1,17 @@
-// Rekordy i ustawienia w localStorage. Każdy dostęp w try/catch —
-// bez localStorage gra działa dalej, tylko nie pamięta rekordów.
-import { DIFFICULTY_ORDER } from './config.js';
+// Rekordy, ustawienia, kopia przerwanej gry i kolejka wyników w localStorage.
+// Każdy dostęp w try/catch — bez localStorage gra działa dalej, tylko nie pamięta danych.
+import { DIFFICULTY_ORDER, PERSISTENCE } from './config.js';
 
 export const HIGHSCORES_KEY = 'arcaneInvaders.highscores';
 export const MUTED_KEY = 'arcaneInvaders.muted';
+export const SAVED_GAME_KEY = 'arcaneInvaders.savedGame';
+export const SCORE_QUEUE_KEY = 'arcaneInvaders.scoreQueue';
 
 export function emptyHighscores() {
   return { latwy: 0, normalny: 0, trudny: 0 };
 }
 
-function defaultBackend() {
+export function defaultBackend() {
   try {
     return globalThis.localStorage ?? null;
   } catch {
@@ -25,6 +27,25 @@ export function updateHighscore(highscores, difficultyKey, score) {
 }
 
 export function createStorage(backend = defaultBackend()) {
+  function readJson(key) {
+    try {
+      const raw = backend?.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null; // uszkodzone dane lub brak dostępu
+    }
+  }
+
+  function writeJson(key, value) {
+    try {
+      if (!backend) return false;
+      backend.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   return {
     loadHighscores() {
       const result = emptyHighscores();
@@ -68,6 +89,26 @@ export function createStorage(backend = defaultBackend()) {
       } catch {
         return false;
       }
+    },
+
+    // Kopia przerwanej gry — zapasowe źródło wznowienia, gdy baza jest niedostępna
+    loadLocalSave() {
+      const data = readJson(SAVED_GAME_KEY);
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+    },
+
+    saveLocalSave(data) {
+      return writeJson(SAVED_GAME_KEY, data);
+    },
+
+    // Wyniki, których nie udało się wysłać do bazy
+    loadScoreQueue() {
+      const data = readJson(SCORE_QUEUE_KEY);
+      return Array.isArray(data) ? data : [];
+    },
+
+    saveScoreQueue(queue) {
+      return writeJson(SCORE_QUEUE_KEY, queue.slice(-PERSISTENCE.scoreQueueMax));
     },
   };
 }
