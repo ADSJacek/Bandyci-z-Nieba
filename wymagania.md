@@ -213,7 +213,7 @@ Wartości są punktem startowym do strojenia.
 - Każdy odczyt i zapis w `try/catch`; przy braku dostępu do localStorage gra działa dalej.
 
 ### Supabase
-- **Konta:** Supabase Auth, login zamieniany na techniczny e-mail `u<hex loginu>@bandyci.local` (potwierdzanie e-maili wyłączone). Tabela `profiles` (id konta, unikalny login) zakładana triggerem przy rejestracji.
+- **Konta:** Supabase Auth, login zamieniany na techniczny e-mail `u<hex loginu>@bandyci.local` (potwierdzanie e-maili wyłączone). Tabela `profiles` (id konta, unikalny login) zakładana triggerem przy rejestracji; trigger sprawdza też zasady loginu i zgodność technicznego e-maila (rejestracja z pominięciem gry nie obejdzie zasad).
 - Tabela `scores` — wynik każdej zakończonej gry zalogowanego gracza: konto, login (wpisywany przez bazę), poziom, wynik, fala, data. Odczyt publiczny; dopisuje tylko zalogowany i tylko jako on sam; zmiana i usuwanie zabronione.
 - Tabela `saved_games` — jedna przerwana gra na konto; odczyt, zapis i usuwanie tylko przez właściciela (RLS po `auth.uid()`).
 - Gość: wznawianie i rekord tylko lokalnie; wyniki nie trafiają do bazy.
