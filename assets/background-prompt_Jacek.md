@@ -1,6 +1,6 @@
 # Prompt — grafika tła do gry Bandyci z Nieba
 
-Plik wynikowy zapisz jako `assets/background.png` (4:3, np. 1600×1200 lub 800×600).
+Plik wynikowy zapisz jako `assets/jacek.png` (4:3, docelowo 800×600 — rozdzielczość gry).
 Gra sama go użyje; gdy pliku brak, rysowane jest tło z kodu.
 
 ## Prompt (pixel-art)
