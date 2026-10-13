@@ -1,4 +1,4 @@
-# Arcane Invaders — wymagania
+# Bandyci z Nieba — wymagania
 
 Data: 2026-09-29
 Status: do przeglądu
@@ -26,6 +26,7 @@ Status: do przeglądu
 - **ES modules** (`import`/`export`), ładowane przez `<script type="module">`.
   - Wymaga lokalnego serwera — przez `file://` przeglądarka blokuje moduły.
 - Grafika **rysowana kodem** na elemencie `<canvas>` (kształty / pixel-art), bez plików graficznych.
+  - Wyjątek: opcjonalne tło `assets/background.png` (4:3, np. 800×600 lub 1600×1200). Gdy pliku brak, używane jest tło rysowane kodem.
 - Dźwięk generowany przez **Web Audio API**, bez plików audio.
 - Zapis rekordów i ustawień w **localStorage**.
 - Stała rozdzielczość logiczna canvasu **800×600**, skalowana do okna z zachowaniem proporcji.
@@ -166,7 +167,7 @@ Wartości są punktem startowym do strojenia.
 
 ## 5. Ekrany i interfejs
 
-1. **Menu** — tytuł „ARCANE INVADERS” w stylu listu gończego „WANTED”, wybór poziomu trudności, rekord dla wybranego poziomu, instrukcja sterowania. Enter = start.
+1. **Menu** — tytuł „BANDYCI Z NIEBA” w stylu listu gończego „WANTED”, wybór poziomu trudności, rekord dla wybranego poziomu, instrukcja sterowania. Enter = start.
 2. **Gra** — HUD u góry: wynik, rekord, życia (ikony kapeluszy), numer fali, aktywny bonus z paskiem czasu.
 3. **Pauza** — półprzezroczysta nakładka z napisem „PAUZA”.
 4. **Game over** — „WANTED: DEAD”, wynik końcowy, komunikat „NOWY REKORD!” gdy pobity; Enter = menu, R = restart.

@@ -14,7 +14,15 @@ const GOLD = '#ffd700';
 
 let background = null;
 
+// Opcjonalna grafika tła z pliku; dopóki się nie wczyta (lub gdy jej brak) — tło rysowane kodem
+const bgImage = new Image();
+bgImage.src = 'assets/background.png';
+
 export function drawBackground(ctx) {
+  if (bgImage.complete && bgImage.naturalWidth) {
+    ctx.drawImage(bgImage, 0, 0, WIDTH, HEIGHT);
+    return;
+  }
   if (!background) background = buildBackground();
   ctx.drawImage(background, 0, 0);
 }
@@ -295,8 +303,8 @@ export function drawMenu(ctx, game) {
   ctx.fillStyle = 'rgba(59, 35, 20, 0.15)';
   ctx.fillRect(cx - 60, py + 110, 120, 96);
   drawSprite(ctx, 'herszt', Math.floor(game.time * 2) % 2, cx - 44, py + 122, 8);
-  text(ctx, 'ARCANE', cx, py + 250, { size: 40, color: '#7a1f12', shadow: false });
-  text(ctx, 'INVADERS', cx, py + 294, { size: 40, color: '#7a1f12', shadow: false });
+  text(ctx, 'BANDYCI', cx, py + 250, { size: 40, color: '#7a1f12', shadow: false });
+  text(ctx, 'Z NIEBA', cx, py + 294, { size: 40, color: '#7a1f12', shadow: false });
   text(ctx, 'ŻYWI LUB MARTWI', cx, py + 332, { size: 16, font: FONT_TEXT, color: INK, shadow: false });
   text(ctx, 'NAGRODA', cx, py + 378, { size: 20, color: INK, shadow: false });
   text(ctx, `$ ${game.highscores[game.difficultyKey]}`, cx, py + 418, { size: 34, color: INK, shadow: false });

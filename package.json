@@ -1,7 +1,7 @@
 {
-  "name": "arcane-invaders",
+  "name": "bandyci-z-nieba",
   "version": "1.0.0",
-  "description": "Arcane Invaders — westernowa gra w stylu Space Invaders (projekt szkoleniowy)",
+  "description": "Bandyci z Nieba — westernowa gra w stylu Space Invaders (projekt szkoleniowy)",
   "private": true,
   "type": "module",
   "scripts": {
