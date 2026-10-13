@@ -1,8 +1,8 @@
-// Maszyna stanów gry: PSEUDONIM → MENU ⇄ HISTORIA, MENU → GRA ⇄ PAUZA → GAME OVER
+// Maszyna stanów gry: LOGOWANIE → MENU ⇄ HISTORIA, MENU → GRA ⇄ PAUZA → GAME OVER
 // oraz logika rozgrywki (fale, kolizje, punktacja, bonusy) i punkty zapisu gry.
 import {
   WIDTH, HEIGHT, GROUND_Y, WAVE_BANNER_TIME, FORMATION, BOSS, VULTURE, POWERUPS,
-  ENEMY_TYPES, DIFFICULTY_ORDER, DEFAULT_DIFFICULTY, getDifficulty, VISUALS, PERSISTENCE,
+  ENEMY_TYPES, DIFFICULTY_ORDER, DEFAULT_DIFFICULTY, getDifficulty, VISUALS, PERSISTENCE, AUTH,
 } from './config.js';
 import { aabb, circleRect } from './collision.js';
 import { scorePoints, enemyPoints, bossReward } from './scoring.js';
@@ -21,20 +21,22 @@ import { createShields } from './entities/shields.js';
 import { PowerUp, POWERUP_INFO, rollPowerup } from './entities/powerups.js';
 import {
   drawBackground, drawHUD, drawBossBar, drawBanner, drawMenu, drawPause, drawGameOver, drawMuteIndicator,
-  drawVignette, drawFlash, drawNickEntry, drawHistory,
+  drawVignette, drawFlash, drawLogin, drawHistory, LOGIN_OPTIONS,
 } from './render.js';
 
 export const STATE = {
-  NICK: 'nick', MENU: 'menu', HISTORY: 'history', PLAYING: 'playing', PAUSED: 'paused', GAMEOVER: 'gameover',
+  LOGIN: 'login', MENU: 'menu', HISTORY: 'history', PLAYING: 'playing', PAUSED: 'paused', GAMEOVER: 'gameover',
 };
 
+export const NOTICE_SESSION_LOST = 'Sesja wygasła — zaloguj się ponownie';
+
 export class Game {
-  constructor({ input, audio, storage, persistence, profile }) {
+  constructor({ input, audio, storage, persistence, auth }) {
     this.input = input;
     this.audio = audio;
     this.storage = storage;
     this.persistence = persistence;
-    this.profile = profile;
+    this.auth = auth;
     this.state = STATE.MENU;
     this.difficultyIndex = DIFFICULTY_ORDER.indexOf(DEFAULT_DIFFICULTY);
     this.highscores = storage.loadHighscores();
@@ -48,10 +50,11 @@ export class Game {
     this.shakePower = 0;
     this.flashTime = 0;    // pozostały czas błysku ekranu
     this.flashColor = '#fff';
-    this.nickDraft = profile.nick ?? '';
     this.autosaveTimer = 0;   // czas od ostatniego zapisu przerwanej gry
-    if (profile.nick) this.enterMenu();
-    else this.state = STATE.NICK;
+    this.logoutArmed = false; // pierwsze L przy przerwanej grze tylko ostrzega
+    this.resetLogin();
+    if (auth.user) this.enterMenu();
+    else this.state = STATE.LOGIN;
   }
 
   get difficultyKey() {
@@ -60,6 +63,11 @@ export class Game {
 
   get difficulty() {
     return getDifficulty(this.difficultyKey);
+  }
+
+  // Login zalogowanego gracza albo „gość”
+  get playerName() {
+    return this.auth.user?.login ?? 'gość';
   }
 
   // Najlepszy znany wynik dla poziomu: lokalny rekord albo najlepszy z rankingu
@@ -86,7 +94,7 @@ export class Game {
   saveProgress({ keepalive = false } = {}) {
     if (this.state !== STATE.PLAYING && this.state !== STATE.PAUSED) return;
     this.autosaveTimer = 0;
-    this.persistence.saveNow(serializeGame(this, { nick: this.profile.nick }), { keepalive });
+    this.persistence.saveNow(serializeGame(this, { nick: this.playerName }), { keepalive });
   }
 
   // --- Przejścia między stanami ----------------------------------------------
@@ -111,6 +119,32 @@ export class Game {
     }
     this.persistence.notice = NOTICE_INCOMPATIBLE;
     this.persistence.discard();
+  }
+
+  resetLogin() {
+    this.loginForm = { step: 'choice', choice: 0, mode: 'signin', field: 0, login: '', password: '', busy: false, error: null };
+  }
+
+  // L w menu: gość → ekran logowania; zalogowany → wylogowanie
+  // (przy przerwanej grze dopiero za drugim naciśnięciem L)
+  pressLogout(armed) {
+    if (this.auth.user && this.persistence.saved && !armed) {
+      this.logoutArmed = true;
+      return;
+    }
+    if (this.auth.user) {
+      this.auth.signOut();
+      this.persistence.onUserChanged();
+    }
+    this.resetLogin();
+    this.state = STATE.LOGIN;
+  }
+
+  // Token nie dał się odnowić (np. konto usunięte) — gracz staje się gościem
+  onSessionLost() {
+    this.persistence.onUserChanged();
+    this.persistence.notice = NOTICE_SESSION_LOST;
+    if (this.state === STATE.HISTORY) this.state = STATE.MENU;
   }
 
   startGame() {
@@ -169,7 +203,7 @@ export class Game {
     }
     this.audio.play('gameover');
     this.persistence.discard();
-    this.persistence.submitResult({ nick: this.profile.nick, difficulty: this.difficultyKey, score: this.score, wave: this.wave });
+    this.persistence.submitResult({ difficulty: this.difficultyKey, score: this.score, wave: this.wave });
   }
 
   // --- Aktualizacja ----------------------------------------------------------
@@ -185,16 +219,18 @@ export class Game {
       this.flashTime = Math.max(0, this.flashTime - dt);
     }
 
-    // Na ekranie pseudonimu „m” to litera, nie wyciszenie
-    if (this.state !== STATE.NICK && input.wasPressed('KeyM')) {
+    // Na ekranie logowania „m” to litera, nie wyciszenie
+    if (this.state !== STATE.LOGIN && input.wasPressed('KeyM')) {
       this.storage.saveMuted(this.audio.toggleMute());
     }
 
     switch (this.state) {
-      case STATE.NICK:
-        this.updateNick();
+      case STATE.LOGIN:
+        this.updateLogin();
         break;
       case STATE.MENU: {
+        const armed = this.logoutArmed;
+        this.logoutArmed = false;
         const n = DIFFICULTY_ORDER.length;
         const before = this.difficultyIndex;
         if (input.wasPressed('ArrowUp')) this.difficultyIndex = (this.difficultyIndex + n - 1) % n;
@@ -202,10 +238,8 @@ export class Game {
         if (this.difficultyIndex !== before) this.persistence.refreshLeaderboard(this.difficultyKey);
         if (input.wasPressed('Enter')) this.startGame();
         else if (input.wasPressed('KeyC')) this.resumeGame();
-        else if (input.wasPressed('KeyN')) {
-          this.nickDraft = this.profile.nick ?? '';
-          this.state = STATE.NICK;
-        } else if (input.wasPressed('KeyH')) {
+        else if (input.wasPressed('KeyL')) this.pressLogout(armed);
+        else if (input.wasPressed('KeyH') && this.auth.user) {
           this.state = STATE.HISTORY;
           this.persistence.refreshHistory();
         }
@@ -239,18 +273,58 @@ export class Game {
     }
   }
 
-  // Wpisywanie pseudonimu: dozwolone znaki, Backspace, Enter zatwierdza, Esc anuluje
-  updateNick() {
+  // Ekran „KTO JEDZIE?”: wybór zaloguj / zarejestruj / gość, potem formularz
+  updateLogin() {
     const input = this.input;
+    const f = this.loginForm;
+    if (f.busy) return; // czekamy na odpowiedź serwera
+
+    if (f.step === 'choice') {
+      const n = LOGIN_OPTIONS.length;
+      if (input.wasPressed('ArrowUp')) f.choice = (f.choice + n - 1) % n;
+      if (input.wasPressed('ArrowDown')) f.choice = (f.choice + 1) % n;
+      if (!input.wasPressed('Enter')) return;
+      const option = LOGIN_OPTIONS[f.choice];
+      if (option === 'guest') this.enterMenu();
+      else Object.assign(f, { step: 'form', mode: option, field: 0, error: null });
+      return;
+    }
+
+    // Formularz: login (znaki jak w pseudonimie) i hasło (dowolne znaki drukowalne)
     for (const ch of input.typed) {
-      if (NICK_CHAR.test(ch) && this.nickDraft.length < PERSISTENCE.nickMaxLength) this.nickDraft += ch;
+      if (f.field === 0) {
+        if (NICK_CHAR.test(ch) && f.login.length < PERSISTENCE.nickMaxLength) f.login += ch;
+      } else if (f.password.length < AUTH.passwordMax) {
+        f.password += ch;
+      }
     }
-    if (input.wasPressed('Backspace')) this.nickDraft = this.nickDraft.slice(0, -1);
-    if (input.wasPressed('Enter')) {
-      if (this.profile.setNick(this.nickDraft)) this.enterMenu();
-    } else if (input.wasPressed('Escape') && this.profile.nick) {
+    const key = f.field === 0 ? 'login' : 'password';
+    if (input.wasPressed('Backspace')) f[key] = f[key].slice(0, -1);
+    if (input.wasPressed('Tab', 'ArrowUp', 'ArrowDown')) f.field = 1 - f.field;
+    if (input.wasPressed('Escape')) {
+      this.resetLogin();
+      this.loginForm.choice = LOGIN_OPTIONS.indexOf(f.mode);
+    } else if (input.wasPressed('Enter')) {
+      this.submitLogin();
+    }
+  }
+
+  // Wysłanie formularza — wynik przychodzi asynchronicznie, pętla gry nie czeka
+  submitLogin() {
+    const f = this.loginForm;
+    f.busy = true;
+    f.error = null;
+    const action = f.mode === 'signup' ? this.auth.signUp(f.login, f.password) : this.auth.signIn(f.login, f.password);
+    action.then((res) => {
+      f.busy = false;
+      if (!res.ok) {
+        f.error = res.error;
+        return;
+      }
+      this.resetLogin(); // hasło znika z pamięci gry
+      this.persistence.onUserChanged();
       this.enterMenu();
-    }
+    });
   }
 
   updatePlaying(dt) {
@@ -509,11 +583,11 @@ export class Game {
   draw(ctx) {
     drawBackground(ctx);
 
-    if (this.state === STATE.MENU || this.state === STATE.NICK || this.state === STATE.HISTORY) {
+    if (this.state === STATE.MENU || this.state === STATE.LOGIN || this.state === STATE.HISTORY) {
       this.ambient.draw(ctx);
       drawVignette(ctx);
       if (this.state === STATE.MENU) drawMenu(ctx, this);
-      else if (this.state === STATE.NICK) drawNickEntry(ctx, this);
+      else if (this.state === STATE.LOGIN) drawLogin(ctx, this);
       else drawHistory(ctx, this);
       drawMuteIndicator(ctx, this.audio.muted);
       return;
