@@ -45,7 +45,7 @@ export class Ambient {
     this.gust = 0;            // pozostały czas podmuchu wiatru
     this.gustTimer = between(VISUALS.dustGustMinDelay, VISUALS.dustGustMaxDelay);
     this.train = null;
-    this.trainTimer = between(VISUALS.trainFirstMin, VISUALS.trainFirstMax);
+    this.trainTimer = 0; // pierwszy pociąg od razu po starcie
     this.circlers = [];
     this.setLevel(level);
   }
@@ -175,18 +175,19 @@ export class Ambient {
       tr.puffTimer -= dt;
       if (tr.puffTimer <= 0 && tr.x < WIDTH + 10) {
         tr.puffTimer = VISUALS.trainPuffInterval;
-        tr.smoke.push({ x: tr.x + 5, y: VISUALS.trainY - 17, r: 2.5, t: 0 });
+        const s = VISUALS.trainScale;
+        tr.smoke.push({ x: tr.x + 5 * s, y: VISUALS.trainY - 17 * s, r: 2.5 * s, t: 0 });
       }
       for (const s of tr.smoke) {
         s.t += dt;
         s.y -= 9 * dt;
         s.x -= 7 * dt;          // wiatr rozwiewa dym do tyłu
-        s.r += 3.5 * dt;
+        s.r += 3.5 * VISUALS.trainScale * dt;
       }
       tr.smoke = tr.smoke.filter((s) => s.t < VISUALS.smokeLife);
       this.updateRiders(tr, dt, k);
       const ridersGone = tr.riders.every((r) => r.x > WIDTH + 30);
-      if (tr.x > WIDTH + 140 && tr.smoke.length === 0 && ridersGone && tr.arrows.length === 0) this.train = null;
+      if (tr.x > WIDTH + 140 * VISUALS.trainScale && tr.smoke.length === 0 && ridersGone && tr.arrows.length === 0) this.train = null;
       return;
     }
     this.trainTimer -= dt * k;
@@ -198,8 +199,9 @@ export class Ambient {
 
   // Każdy jeździec celuje w swój wagon; gdy go dogoni — galopuje obok i strzela z łuku
   updateRiders(tr, dt, k) {
+    const s = VISUALS.trainScale;
     tr.riders.forEach((r, i) => {
-      const target = tr.x - 40 - i * 24;
+      const target = tr.x - (40 + i * 24) * s;
       const diff = target - r.x;
       const catchUp = Math.max(-30, Math.min(VISUALS.riderCatchUp, diff * 1.5));
       r.x += (VISUALS.trainSpeed + catchUp) * dt;
@@ -207,12 +209,12 @@ export class Ambient {
       r.kickTimer -= dt;
       if (r.kickTimer <= 0 && r.x > -20 && r.x < WIDTH + 20) {
         r.kickTimer = 0.12;
-        tr.kicks.push({ x: r.x - 8, y: VISUALS.trainY + r.lane, t: 0 });
+        tr.kicks.push({ x: r.x - 8 * s, y: VISUALS.trainY + r.lane * s, t: 0 });
       }
       r.shotTimer -= dt * k;
       if (r.shotTimer <= 0 && Math.abs(diff) < 25 && tr.x < WIDTH) {
         r.shotTimer = between(VISUALS.riderShotMin, VISUALS.riderShotMax);
-        tr.arrows.push({ x: r.x + 6, y: VISUALS.trainY + r.lane - 12, vx: between(70, 100), vy: -45, t: 0 });
+        tr.arrows.push({ x: r.x + 6 * s, y: VISUALS.trainY + (r.lane - 12) * s, vx: between(70, 100) * s, vy: -45 * s, t: 0 });
       }
     });
     for (const a of tr.arrows) {
@@ -294,8 +296,12 @@ export class Ambient {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-    const y = VISUALS.trainY;
-    const x = Math.round(tr.x); // przód lokomotywy
+    // Rysujemy w skali VISUALS.trainScale wokół przodu lokomotywy na linii kół
+    ctx.save();
+    ctx.translate(Math.round(tr.x), VISUALS.trainY);
+    ctx.scale(VISUALS.trainScale, VISUALS.trainScale);
+    const x = 0;
+    const y = 0;
     ctx.fillStyle = SILHOUETTE;
     ctx.fillRect(x - 20, y - 9, 26, 7);   // kocioł
     ctx.fillRect(x - 26, y - 15, 8, 13);  // budka maszynisty
@@ -306,6 +312,7 @@ export class Ambient {
     for (let wx = x + 2; wx > x - 50 - VISUALS.trainCars * 23; wx -= 8) {
       ctx.fillRect(wx, y - 2, 3, 2);      // koła
     }
+    ctx.restore();
   }
 
   // Jeźdźcy: koń w galopie, wojownik z pióropuszem i łukiem; kurz spod kopyt i strzały
@@ -333,9 +340,12 @@ export class Ambient {
 
     for (const r of tr.riders) {
       if (r.x < -30 || r.x > WIDTH + 30) continue;
-      const x = Math.round(r.x);
       const bob = Math.abs(Math.sin(r.phase)) * 1.5;
-      const y = VISUALS.trainY + r.lane - bob; // linia kopyt
+      ctx.save();
+      ctx.translate(Math.round(r.x), VISUALS.trainY + (r.lane - bob) * VISUALS.trainScale); // linia kopyt
+      ctx.scale(VISUALS.trainScale, VISUALS.trainScale);
+      const x = 0;
+      const y = 0;
       ctx.fillStyle = SILHOUETTE;
       ctx.strokeStyle = SILHOUETTE;
       // koń: tułów, szyja z łbem, ogon
@@ -370,6 +380,7 @@ export class Ambient {
       ctx.beginPath();
       ctx.arc(x + 4, y - 13, 4, -Math.PI / 2, Math.PI / 2);
       ctx.stroke();
+      ctx.restore();
     }
   }
 
