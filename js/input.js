@@ -40,6 +40,11 @@ export class Input {
     return codes.some((c) => this.pressed.has(c));
   }
 
+  // Czy w tej klatce naciśnięto jakikolwiek klawisz
+  anyPressed() {
+    return this.pressed.size > 0;
+  }
+
   // Wywoływane na końcu każdej klatki
   endFrame() {
     this.pressed.clear();

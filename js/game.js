@@ -229,8 +229,9 @@ export class Game {
         this.updateLogin();
         break;
       case STATE.MENU: {
+        // Ostrzeżenie przed wylogowaniem rozbraja dopiero inny klawisz, nie upływ klatek
         const armed = this.logoutArmed;
-        this.logoutArmed = false;
+        if (input.anyPressed()) this.logoutArmed = false;
         const n = DIFFICULTY_ORDER.length;
         const before = this.difficultyIndex;
         if (input.wasPressed('ArrowUp')) this.difficultyIndex = (this.difficultyIndex + n - 1) % n;

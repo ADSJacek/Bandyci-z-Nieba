@@ -26,6 +26,8 @@ class FakeInput {
 
   wasPressed(...codes) { return codes.some((c) => this.pressed.has(c)); }
 
+  anyPressed() { return this.pressed.size > 0; }
+
   endFrame() {
     this.pressed.clear();
     this.typed = [];
@@ -192,6 +194,18 @@ test('L przy przerwanej grze: najpierw ostrzeżenie, wylogowanie dopiero za drug
   step(game, { press: ['ArrowDown'] }); // inny klawisz rozbraja
   assert.equal(game.logoutArmed, false);
   step(game, { press: ['KeyL'] });
+  step(game, { press: ['KeyL'] });
+  assert.equal(game.state, STATE.LOGIN);
+  assert.deepEqual(auth.calls, [['signOut']]);
+});
+
+test('L przy przerwanej grze: puste klatki między naciśnięciami nie rozbrajają ostrzeżenia', () => {
+  const { game, auth, persistence } = makeGame();
+  persistence.saved = { difficulty: 'normalny', wave: 2, score: 10, snapshot: {} };
+  step(game, { press: ['KeyL'] });
+  step(game);
+  step(game);
+  assert.equal(game.logoutArmed, true);
   step(game, { press: ['KeyL'] });
   assert.equal(game.state, STATE.LOGIN);
   assert.deepEqual(auth.calls, [['signOut']]);
