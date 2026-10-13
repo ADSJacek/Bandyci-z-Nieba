@@ -1,12 +1,15 @@
-// Maszyna stanów gry: MENU → GRA → PAUZA → GAME OVER oraz logika rozgrywki
-// (fale, kolizje, punktacja, bonusy).
+// Maszyna stanów gry: PSEUDONIM → MENU ⇄ HISTORIA, MENU → GRA ⇄ PAUZA → GAME OVER
+// oraz logika rozgrywki (fale, kolizje, punktacja, bonusy) i punkty zapisu gry.
 import {
   WIDTH, HEIGHT, GROUND_Y, WAVE_BANNER_TIME, FORMATION, BOSS, VULTURE, POWERUPS,
-  ENEMY_TYPES, DIFFICULTY_ORDER, DEFAULT_DIFFICULTY, getDifficulty, VISUALS,
+  ENEMY_TYPES, DIFFICULTY_ORDER, DEFAULT_DIFFICULTY, getDifficulty, VISUALS, PERSISTENCE,
 } from './config.js';
 import { aabb, circleRect } from './collision.js';
 import { scorePoints, enemyPoints, bossReward } from './scoring.js';
 import { updateHighscore } from './storage.js';
+import { serializeGame, restoreGame } from './snapshot.js';
+import { NOTICE_INCOMPATIBLE } from './persistence.js';
+import { NICK_CHAR } from './profile.js';
 import { Effects } from './effects.js';
 import { Ambient } from './ambient.js';
 import { Player } from './entities/player.js';
@@ -18,16 +21,20 @@ import { createShields } from './entities/shields.js';
 import { PowerUp, POWERUP_INFO, rollPowerup } from './entities/powerups.js';
 import {
   drawBackground, drawHUD, drawBossBar, drawBanner, drawMenu, drawPause, drawGameOver, drawMuteIndicator,
-  drawVignette, drawFlash,
+  drawVignette, drawFlash, drawNickEntry, drawHistory,
 } from './render.js';
 
-export const STATE = { MENU: 'menu', PLAYING: 'playing', PAUSED: 'paused', GAMEOVER: 'gameover' };
+export const STATE = {
+  NICK: 'nick', MENU: 'menu', HISTORY: 'history', PLAYING: 'playing', PAUSED: 'paused', GAMEOVER: 'gameover',
+};
 
 export class Game {
-  constructor({ input, audio, storage }) {
+  constructor({ input, audio, storage, persistence, profile }) {
     this.input = input;
     this.audio = audio;
     this.storage = storage;
+    this.persistence = persistence;
+    this.profile = profile;
     this.state = STATE.MENU;
     this.difficultyIndex = DIFFICULTY_ORDER.indexOf(DEFAULT_DIFFICULTY);
     this.highscores = storage.loadHighscores();
@@ -41,6 +48,10 @@ export class Game {
     this.shakePower = 0;
     this.flashTime = 0;    // pozostały czas błysku ekranu
     this.flashColor = '#fff';
+    this.nickDraft = profile.nick ?? '';
+    this.autosaveTimer = 0;   // czas od ostatniego zapisu przerwanej gry
+    if (profile.nick) this.enterMenu();
+    else this.state = STATE.NICK;
   }
 
   get difficultyKey() {
@@ -51,22 +62,61 @@ export class Game {
     return getDifficulty(this.difficultyKey);
   }
 
+  // Najlepszy znany wynik dla poziomu: lokalny rekord albo najlepszy z rankingu
+  get savedRecord() {
+    return Math.max(this.highscores[this.difficultyKey] ?? 0, this.persistence.bestScore(this.difficultyKey));
+  }
+
   get record() {
-    return Math.max(this.highscores[this.difficultyKey] ?? 0, this.score);
+    return Math.max(this.savedRecord, this.score);
   }
 
   get isBossWave() {
     return isBossWave(this.wave);
   }
 
-  // Wywoływane także przy ukryciu karty (visibilitychange)
+  // Wywoływane klawiszem P / Esc oraz przy ukryciu karty (visibilitychange)
   pause() {
-    if (this.state === STATE.PLAYING) this.state = STATE.PAUSED;
+    if (this.state !== STATE.PLAYING) return;
+    this.state = STATE.PAUSED;
+    this.saveProgress();
+  }
+
+  // Zapis przerwanej gry: pauza, wyjście do menu, autozapis, zamknięcie karty
+  saveProgress({ keepalive = false } = {}) {
+    if (this.state !== STATE.PLAYING && this.state !== STATE.PAUSED) return;
+    this.autosaveTimer = 0;
+    this.persistence.saveNow(serializeGame(this, { nick: this.profile.nick }), { keepalive });
   }
 
   // --- Przejścia między stanami ----------------------------------------------
 
+  // Wejście do menu: dosłanie zaległych wyników, ranking, sprawdzenie zapisu gry
+  enterMenu() {
+    this.state = STATE.MENU;
+    this.persistence.flushQueue();
+    this.persistence.refreshLeaderboard(this.difficultyKey);
+    this.persistence.checkSaved();
+  }
+
+  // Wznowienie przerwanej gry — w pauzie, żeby gracz zdążył się przygotować
+  resumeGame() {
+    const saved = this.persistence.saved;
+    if (!saved) return;
+    this.persistence.notice = null;
+    if (restoreGame(this, saved.snapshot)) {
+      this.autosaveTimer = 0;
+      this.state = STATE.PAUSED;
+      return;
+    }
+    this.persistence.notice = NOTICE_INCOMPATIBLE;
+    this.persistence.discard();
+  }
+
   startGame() {
+    this.persistence.discard();
+    this.persistence.notice = null;
+    this.autosaveTimer = 0;
     this.state = STATE.PLAYING;
     this.score = 0;
     this.wave = 0;
@@ -118,6 +168,8 @@ export class Game {
       this.storage.saveHighscores(highscores);
     }
     this.audio.play('gameover');
+    this.persistence.discard();
+    this.persistence.submitResult({ nick: this.profile.nick, difficulty: this.difficultyKey, score: this.score, wave: this.wave });
   }
 
   // --- Aktualizacja ----------------------------------------------------------
@@ -133,35 +185,71 @@ export class Game {
       this.flashTime = Math.max(0, this.flashTime - dt);
     }
 
-    if (input.wasPressed('KeyM')) {
+    // Na ekranie pseudonimu „m” to litera, nie wyciszenie
+    if (this.state !== STATE.NICK && input.wasPressed('KeyM')) {
       this.storage.saveMuted(this.audio.toggleMute());
     }
 
     switch (this.state) {
+      case STATE.NICK:
+        this.updateNick();
+        break;
       case STATE.MENU: {
         const n = DIFFICULTY_ORDER.length;
+        const before = this.difficultyIndex;
         if (input.wasPressed('ArrowUp')) this.difficultyIndex = (this.difficultyIndex + n - 1) % n;
         if (input.wasPressed('ArrowDown')) this.difficultyIndex = (this.difficultyIndex + 1) % n;
+        if (this.difficultyIndex !== before) this.persistence.refreshLeaderboard(this.difficultyKey);
         if (input.wasPressed('Enter')) this.startGame();
+        else if (input.wasPressed('KeyC')) this.resumeGame();
+        else if (input.wasPressed('KeyN')) {
+          this.nickDraft = this.profile.nick ?? '';
+          this.state = STATE.NICK;
+        } else if (input.wasPressed('KeyH')) {
+          this.state = STATE.HISTORY;
+          this.persistence.refreshHistory();
+        }
         break;
       }
+      case STATE.HISTORY:
+        if (input.wasPressed('Escape', 'Enter')) this.state = STATE.MENU;
+        break;
       case STATE.PLAYING:
         if (input.wasPressed('KeyP', 'Escape')) {
-          this.state = STATE.PAUSED;
+          this.pause();
           break;
         }
+        this.autosaveTimer += dt;
+        if (this.autosaveTimer >= PERSISTENCE.autosaveInterval) this.saveProgress();
         this.updatePlaying(dt);
         break;
       case STATE.PAUSED:
         if (input.wasPressed('KeyP', 'Escape')) this.state = STATE.PLAYING;
-        else if (input.wasPressed('Enter')) this.state = STATE.MENU;
+        else if (input.wasPressed('Enter')) {
+          this.saveProgress();
+          this.enterMenu();
+        }
         break;
       case STATE.GAMEOVER:
-        if (input.wasPressed('Enter')) this.state = STATE.MENU;
+        if (input.wasPressed('Enter')) this.enterMenu();
         else if (input.wasPressed('KeyR')) this.startGame();
         break;
       default:
         break;
+    }
+  }
+
+  // Wpisywanie pseudonimu: dozwolone znaki, Backspace, Enter zatwierdza, Esc anuluje
+  updateNick() {
+    const input = this.input;
+    for (const ch of input.typed) {
+      if (NICK_CHAR.test(ch) && this.nickDraft.length < PERSISTENCE.nickMaxLength) this.nickDraft += ch;
+    }
+    if (input.wasPressed('Backspace')) this.nickDraft = this.nickDraft.slice(0, -1);
+    if (input.wasPressed('Enter')) {
+      if (this.profile.setNick(this.nickDraft)) this.enterMenu();
+    } else if (input.wasPressed('Escape') && this.profile.nick) {
+      this.enterMenu();
     }
   }
 
@@ -421,10 +509,12 @@ export class Game {
   draw(ctx) {
     drawBackground(ctx);
 
-    if (this.state === STATE.MENU) {
+    if (this.state === STATE.MENU || this.state === STATE.NICK || this.state === STATE.HISTORY) {
       this.ambient.draw(ctx);
       drawVignette(ctx);
-      drawMenu(ctx, this);
+      if (this.state === STATE.MENU) drawMenu(ctx, this);
+      else if (this.state === STATE.NICK) drawNickEntry(ctx, this);
+      else drawHistory(ctx, this);
       drawMuteIndicator(ctx, this.audio.muted);
       return;
     }
