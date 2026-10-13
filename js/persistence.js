@@ -177,6 +177,7 @@ export class Persistence {
     this.flushing = true;
     const done = new Set();
     for (const row of mine) {
+      if (this.userId !== userId) break; // gracz się zmienił — wyniki A nie mogą pójść z tokenem B
       const res = await this.db.submitScore(row);
       if (!res.ok && !REJECTED.test(res.error)) break; // brak sieci lub sesji — spróbujemy następnym razem
       if (!res.ok) this.warn('odrzucony wynik', res.error);

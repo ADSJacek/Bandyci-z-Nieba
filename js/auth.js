@@ -86,7 +86,7 @@ export function createAuth({
   async function refresh() {
     const current = session;
     const res = await call('/auth/v1/token?grant_type=refresh_token', { refresh_token: current.refresh_token });
-    if (session !== current) return session?.access_token ?? null; // w międzyczasie wylogowanie lub nowe logowanie
+    if (session !== current) return null; // w międzyczasie wylogowanie lub nowe logowanie — nie oddajemy cudzego tokenu
     const next = res.ok ? toSession(res.data, now) : null;
     if (next) {
       store(next);

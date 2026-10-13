@@ -166,3 +166,28 @@ test('uszkodzona lub niepełna sesja w localStorage → gość, bez wyjątku', (
   const broken = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('QuotaExceededError'); } };
   assert.equal(createAuth({ url: BASE, key: KEY, fetchFn: fakeFetch(), backend: broken }).user, null);
 });
+
+test('odświeżanie, w trakcie którego zalogował się ktoś inny → null, nie token nowego gracza', async () => {
+  let release;
+  const responses = [
+    { body: sessionBody('Anna', { id: 'u-a', access: 'at-a', expiresAt: NOW / 1000 + 10 }) },
+    'wait',
+    { body: '' }, // /logout
+    { body: sessionBody('Bartek', { id: 'u-b', access: 'at-b', refresh: 'rt-b' }) },
+  ];
+  const fetchFn = async (url, init) => {
+    const r = responses.shift();
+    if (r === 'wait') await new Promise((res) => { release = res; });
+    const body = r === 'wait' ? sessionBody('Anna', { id: 'u-a', access: 'at-a2' }) : r.body;
+    return { ok: true, status: 200, headers: new Headers(), text: async () => body };
+  };
+  const { auth } = authWith(fetchFn);
+  await auth.signIn('Anna', 'tajne123');
+  const pending = auth.getToken();          // odświeżanie Anny w toku
+  await new Promise((r) => setImmediate(r));
+  await auth.signOut();
+  await auth.signIn('Bartek', 'tajne123');  // logowanie Bartka
+  release();
+  assert.equal(await pending, null);
+  assert.equal(auth.user.login, 'Bartek');
+});

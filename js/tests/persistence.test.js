@@ -182,6 +182,18 @@ test('flushQueue: tylko wiersze bieżącego konta; 401 i sieć zostawiają, 400/
   assert.deepEqual(storage.loadScoreQueue().map((r) => r.id), ['b']);
 });
 
+test('flushQueue: zmiana gracza w trakcie wysyłki zatrzymuje kolejkę (wyniki A nie idą jako B)', async () => {
+  const first = deferred();
+  const { db, persistence, storage, auth } = setup({ submitScore: [first.promise] });
+  storage.saveScoreQueue([{ id: 'a', userId: 'u-1', score: 1 }, { id: 'c', userId: 'u-1', score: 3 }]);
+  const flushing = persistence.flushQueue();
+  auth.user = { id: 'u-2', login: 'B' }; // A wylogował się, zalogował się B
+  first.resolve(OK);
+  await flushing;
+  assert.deepEqual(db.calls.map((c) => c.args[0].id), ['a']);
+  assert.deepEqual(storage.loadScoreQueue().map((r) => r.id), ['c']);
+});
+
 test('onUserChanged: czyści stan poprzedniego gracza', () => {
   const { persistence } = setup();
   persistence.saved = { score: 1 };
