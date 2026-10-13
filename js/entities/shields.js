@@ -29,6 +29,19 @@ export class Shield {
     this.rect = { x, y, w: SHAPE[0].length * s, h: SHAPE.length * s };
   }
 
+  // Zapis zwięzły: pozycja + stan bloków jako ciąg „0/1” (kształt jest stały)
+  toJSON() {
+    return { x: this.rect.x, y: this.rect.y, alive: this.blocks.map((b) => (b.alive ? '1' : '0')).join('') };
+  }
+
+  static fromJSON(data) {
+    if (!Number.isFinite(data?.x) || !Number.isFinite(data?.y)) throw new Error('Shield: niepoprawna pozycja');
+    const shield = new Shield(data.x, data.y);
+    if (typeof data.alive !== 'string' || data.alive.length !== shield.blocks.length) throw new Error('Shield: niepoprawne bloki');
+    shield.blocks.forEach((b, i) => { b.alive = data.alive[i] === '1'; });
+    return shield;
+  }
+
   // Niszczy jeden blok trafiony przez `rect`. Pocisk lecący w górę (fromBelow)
   // trafia najpierw najniższy blok, lecący w dół — najwyższy.
   hitRect(rect, fromBelow) {

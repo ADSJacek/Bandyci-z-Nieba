@@ -3,6 +3,7 @@ import { PLAYER, POWERUPS, WIDTH } from '../config.js';
 import { Bullet } from './bullets.js';
 import { applyExtraLife, applySuperBonus } from './powerups.js';
 import { drawSprite, drawStar } from '../sprites.js';
+import { revive } from '../serial.js';
 
 export class Player {
   constructor(lives) {
@@ -17,6 +18,14 @@ export class Player {
     this.star = false;   // tarcza „Gwiazda szeryfa”
     this.bonuses = { double: 0, fast: 0 }; // pozostały czas bonusów czasowych
     this.t = 0;
+  }
+
+  static fromJSON(data) {
+    const bonuses = data?.bonuses;
+    if (!Number.isFinite(bonuses?.double) || !Number.isFinite(bonuses?.fast)) throw new Error('Player: niepoprawne bonusy');
+    const player = revive(Player, data, ['w', 'h', 'x', 'y', 'lives', 'cooldown', 'invuln', 'golden', 't']);
+    player.star = Boolean(player.star);
+    return player;
   }
 
   get rect() {
