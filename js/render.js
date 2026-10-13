@@ -20,8 +20,12 @@ const LOGIN_ERRORS = {
   'slabe-haslo': `Hasło musi mieć co najmniej ${AUTH.passwordMin} znaków`,
   'zly-login': `Login: 1–${PERSISTENCE.nickMaxLength} znaków, litery, cyfry, spacja, _ -`,
   'potwierdz-email': 'Konto czeka na potwierdzenie e-mail (wyłącz „Confirm email” w Supabase)',
+  'za-duzo-prob': 'Za dużo prób — spróbuj za chwilę',
+  'blad-serwera': 'Błąd serwera — spróbuj ponownie',
 };
 const LOGIN_ERROR_OFFLINE = 'Brak połączenia z serwerem — możesz grać jako gość';
+const LOGIN_ERROR_OTHER = 'Nie udało się — spróbuj ponownie';
+const OFFLINE_ERRORS = ['offline', 'network', 'timeout', 'bad-response'];
 
 // --- Tło ---------------------------------------------------------------------
 
@@ -501,7 +505,7 @@ export function drawLogin(ctx, game) {
 
   let status = '';
   if (f.busy) status = 'Łączenie…';
-  else if (f.error) status = LOGIN_ERRORS[f.error] ?? LOGIN_ERROR_OFFLINE;
+  else if (f.error) status = LOGIN_ERRORS[f.error] ?? (OFFLINE_ERRORS.includes(f.error) ? LOGIN_ERROR_OFFLINE : LOGIN_ERROR_OTHER);
   if (status) text(ctx, status, cx, py + 305, { size: 14, font: FONT_TEXT, color: f.busy ? INK : '#9b1c1c', shadow: false });
   text(ctx, 'TAB — pole     ENTER — wyślij     ESC — wróć', cx, py + ph + 40, { size: 18 });
 }

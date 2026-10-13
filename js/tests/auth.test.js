@@ -12,8 +12,8 @@ function mockBackend(initial = {}) {
 }
 
 // Odpowiedź Supabase Auth z sesją
-const sessionBody = (login, { id = 'u-1', access = 'at-1', refresh = 'rt-1', expiresAt = NOW / 1000 + 3600 } = {}) => JSON.stringify({
-  access_token: access, refresh_token: refresh, expires_in: 3600, expires_at: expiresAt, token_type: 'bearer',
+const sessionBody = (login, { id = 'u-1', access = 'at-1', refresh = 'rt-1', expiresIn = 3600 } = {}) => JSON.stringify({
+  access_token: access, refresh_token: refresh, expires_in: expiresIn, expires_at: NOW / 1000 + expiresIn, token_type: 'bearer',
   user: { id, user_metadata: { login } },
 });
 
@@ -83,7 +83,7 @@ test('błędy Supabase → czytelne kody', async () => {
   assert.equal((await auth.signUp('Joe', 'tajne123')).error, 'slabe-haslo');
   assert.equal((await auth.signUp('Joe', 'tajne123')).error, 'potwierdz-email');
   assert.equal((await auth.signIn('Joe', 'tajne123')).error, 'network');
-  assert.equal((await auth.signIn('Joe', 'tajne123')).error, 'http-500');
+  assert.equal((await auth.signIn('Joe', 'tajne123')).error, 'blad-serwera');
   assert.equal(auth.user, null);
 });
 
@@ -102,8 +102,8 @@ test('walidacja przed wysłaniem: zły login, za krótkie hasło, brak konfigura
 test('getToken: ważny token bez zapytania; tuż przed wygaśnięciem — odświeżenie', async () => {
   let now = NOW;
   const fetchFn = fakeFetch([
-    { body: sessionBody('Joe', { expiresAt: NOW / 1000 + 120 }) },
-    { body: sessionBody('Joe', { access: 'at-2', refresh: 'rt-2', expiresAt: NOW / 1000 + 3700 }) },
+    { body: sessionBody('Joe', { expiresIn: 120 }) },
+    { body: sessionBody('Joe', { access: 'at-2', refresh: 'rt-2', expiresIn: 3700 }) },
   ]);
   const { auth, backend } = authWith(fetchFn, { now: () => now });
   await auth.signIn('Joe', 'tajne123');
@@ -118,7 +118,7 @@ test('getToken: ważny token bez zapytania; tuż przed wygaśnięciem — odświ
 
 test('równoczesne getToken → jedno odświeżenie (rotacja refresh tokenu)', async () => {
   const fetchFn = fakeFetch([
-    { body: sessionBody('Joe', { expiresAt: NOW / 1000 + 10 }) },
+    { body: sessionBody('Joe', { expiresIn: 10 }) },
     { body: sessionBody('Joe', { access: 'at-2', refresh: 'rt-2' }) },
   ]);
   const { auth } = authWith(fetchFn);
@@ -130,7 +130,7 @@ test('równoczesne getToken → jedno odświeżenie (rotacja refresh tokenu)', a
 
 test('odrzucone odświeżenie (4xx) → gość i onSessionLost; brak sieci → sesja zostaje', async () => {
   const fetchFn = fakeFetch([
-    { body: sessionBody('Joe', { expiresAt: NOW / 1000 + 10 }) },
+    { body: sessionBody('Joe', { expiresIn: 10 }) },
     { throws: new TypeError('Failed to fetch') },
     { status: 400, body: '{"error_code":"validation_failed","msg":"Refresh token is not valid"}' },
   ]);
@@ -153,7 +153,7 @@ test('wylogowanie: sesja usunięta, wywołanie /logout z tokenem (błąd sieci i
   assert.deepEqual(await auth.signOut(), { ok: true, error: null });
   assert.equal(auth.user, null);
   assert.equal(await auth.getToken(), null);
-  assert.equal(fetchFn.calls[1].url, `${BASE}/auth/v1/logout`);
+  assert.equal(fetchFn.calls[1].url, `${BASE}/auth/v1/logout?scope=local`);
   assert.equal(fetchFn.calls[1].init.headers.Authorization, 'Bearer at-1');
   assert.equal(JSON.parse(backend.data[SESSION_KEY]), null);
 });
@@ -170,7 +170,7 @@ test('uszkodzona lub niepełna sesja w localStorage → gość, bez wyjątku', (
 test('odświeżanie, w trakcie którego zalogował się ktoś inny → null, nie token nowego gracza', async () => {
   let release;
   const responses = [
-    { body: sessionBody('Anna', { id: 'u-a', access: 'at-a', expiresAt: NOW / 1000 + 10 }) },
+    { body: sessionBody('Anna', { id: 'u-a', access: 'at-a', expiresIn: 10 }) },
     'wait',
     { body: '' }, // /logout
     { body: sessionBody('Bartek', { id: 'u-b', access: 'at-b', refresh: 'rt-b' }) },
@@ -190,4 +190,63 @@ test('odświeżanie, w trakcie którego zalogował się ktoś inny → null, nie
   release();
   assert.equal(await pending, null);
   assert.equal(auth.user.login, 'Bartek');
+});
+
+test('błędy serwera: limit prób, błąd serwera, inne — nie udają braku sieci', async () => {
+  const fetchFn = fakeFetch([
+    { status: 429, body: '{"code":429,"error_code":"over_request_rate_limit","msg":"Request rate limit reached"}' },
+    { status: 500, body: '{"code":500,"error_code":"unexpected_failure","msg":"Database error saving new user"}' },
+    { status: 400, body: '{"code":400,"error_code":"validation_failed","msg":"Password is too long"}' },
+    { status: 0, throws: new TypeError('Failed to fetch') },
+  ]);
+  const { auth } = authWith(fetchFn);
+  assert.equal((await auth.signIn('Joe', 'tajne123')).error, 'za-duzo-prob');
+  assert.equal((await auth.signUp('Joe', 'tajne123')).error, 'blad-serwera');
+  assert.equal((await auth.signUp('Joe', 'tajne123')).error, 'nieudane');
+  assert.equal((await auth.signIn('Joe', 'tajne123')).error, 'network');
+});
+
+test('czas wygaśnięcia liczony od lokalnego zegara (expires_in), nie od expires_at serwera', async () => {
+  // zegar komputera spóźnia się o 2 h względem serwera
+  const skewed = JSON.stringify({ ...JSON.parse(sessionBody('Joe')), expires_at: NOW / 1000 + 7200 + 3600 });
+  const { auth, backend } = authWith(fakeFetch([{ body: skewed }]));
+  await auth.signIn('Joe', 'tajne123');
+  assert.equal(JSON.parse(backend.data[SESSION_KEY]).expires_at, NOW / 1000 + 3600);
+});
+
+test('wylogowanie tylko na tym urządzeniu (scope=local)', async () => {
+  const fetchFn = fakeFetch([{ body: sessionBody('Joe') }, { status: 204 }]);
+  const { auth } = authWith(fetchFn);
+  await auth.signIn('Joe', 'tajne123');
+  await auth.signOut();
+  assert.equal(fetchFn.calls[1].url, `${BASE}/auth/v1/logout?scope=local`);
+});
+
+test('limit prób lub błąd serwera przy odświeżaniu → sesja zostaje', async () => {
+  const fetchFn = fakeFetch([
+    { body: sessionBody('Joe', { expiresIn: 10 }) },
+    { status: 429, body: '{"error_code":"over_request_rate_limit"}' },
+    { status: 503, body: '' },
+  ]);
+  const { auth } = authWith(fetchFn);
+  let lost = 0;
+  auth.onSessionLost = () => { lost++; };
+  await auth.signIn('Joe', 'tajne123');
+  assert.equal(await auth.getToken(), 'at-1');
+  assert.equal(await auth.getToken(), 'at-1');
+  assert.equal(auth.user.login, 'Joe');
+  assert.equal(lost, 0);
+});
+
+test('druga karta odświeżyła już sesję → przejmujemy ją zamiast zużytego refresh tokenu', async () => {
+  const backend = mockBackend();
+  const fetchFn = fakeFetch([{ body: sessionBody('Joe', { expiresIn: 10 }) }]);
+  const { auth } = authWith(fetchFn, { backend });
+  await auth.signIn('Joe', 'tajne123');
+  // druga karta zapisała nowszą sesję tego samego gracza
+  backend.setItem(SESSION_KEY, JSON.stringify({
+    access_token: 'at-tab2', refresh_token: 'rt-tab2', expires_at: NOW / 1000 + 3600, user: { id: 'u-1', login: 'Joe' },
+  }));
+  assert.equal(await auth.getToken(), 'at-tab2');
+  assert.equal(fetchFn.calls.length, 1); // bez zapytania o odświeżenie
 });

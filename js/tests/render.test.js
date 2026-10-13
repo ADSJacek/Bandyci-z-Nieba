@@ -60,7 +60,7 @@ test('ekrany rysują się we wszystkich stanach danych', () => {
     { step: 'choice', choice: 2, mode: 'signin', field: 0, login: '', password: '', busy: false, error: null },
     form({ mode: 'signup', field: 1, password: 'x'.repeat(72) }),
     form({ busy: true }),
-    ...['login-zajety', 'zle-dane', 'slabe-haslo', 'zly-login', 'potwierdz-email', 'network', 'http-500'].map((error) => form({ error })),
+    ...['login-zajety', 'zle-dane', 'slabe-haslo', 'zly-login', 'potwierdz-email', 'za-duzo-prob', 'blad-serwera', 'nieudane', 'network', 'http-500'].map((error) => form({ error })),
   ];
   for (const persistence of persistenceVariants) {
     for (const user of [{ id: 'u-1', login: 'Joe' }, null]) {

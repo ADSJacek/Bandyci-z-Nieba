@@ -35,7 +35,9 @@ function toSession(data, now) {
   const session = {
     access_token: data?.access_token,
     refresh_token: data?.refresh_token,
-    expires_at: Number.isFinite(data?.expires_at) ? data.expires_at : Math.floor(now() / 1000) + (data?.expires_in ?? 3600),
+    // Liczymy od własnego zegara: przy przestawionym zegarze komputera expires_at serwera myli
+    expires_at: Number.isFinite(data?.expires_in) ? Math.floor(now() / 1000) + data.expires_in
+      : Number.isFinite(data?.expires_at) ? data.expires_at : Math.floor(now() / 1000) + 3600,
     user: { id: data?.user?.id, login: data?.user?.user_metadata?.login },
   };
   return isSession(session) ? session : null;
@@ -72,15 +74,30 @@ export function createAuth({
   const call = (path, body, headers = {}) =>
     requestJson(fetchFn, base + path, { method: 'POST', body, timeoutMs, headers: { apikey: key, ...headers } });
 
+  // Kod błędu dla gracza: brak sieci, znany błąd Supabase, limit prób, błąd serwera, inne
+  function errorOf(res) {
+    if (!res.status) return res.error; // network / timeout / bad-response
+    if (ERROR_CODES[res.data?.error_code]) return ERROR_CODES[res.data.error_code];
+    if (res.status === 429) return 'za-duzo-prob';
+    return res.status >= 500 ? 'blad-serwera' : 'nieudane';
+  }
+
   // Rejestracja / logowanie: zapisuje sesję albo zwraca kod błędu
   async function start(path, body) {
     if (!enabled) return { ok: false, error: 'offline' };
     const res = await call(path, body);
-    if (!res.ok) return { ok: false, error: (res.status && ERROR_CODES[res.data?.error_code]) || res.error };
+    if (!res.ok) return { ok: false, error: errorOf(res) };
     const next = toSession(res.data, now);
     if (!next) return { ok: false, error: res.data?.id && !res.data?.access_token ? 'potwierdz-email' : 'bad-response' };
     store(next);
     return { ok: true, error: null };
+  }
+
+  // Inna karta mogła już odświeżyć sesję (refresh token jest jednorazowy) — przejmujemy nowszą
+  function adoptNewerStored() {
+    const stored = load();
+    if (stored && stored.user.id === session.user.id && stored.refresh_token !== session.refresh_token
+      && stored.expires_at > session.expires_at) session = stored;
   }
 
   async function refresh() {
@@ -92,13 +109,14 @@ export function createAuth({
       store(next);
       return next.access_token;
     }
-    if (res.status >= 400 && res.status < 500) {
-      // Serwer odrzucił sesję (np. konto usunięte) — gracz staje się gościem
+    if ([400, 401, 403].includes(res.status)) {
+      // Serwer odrzucił sesję (np. konto usunięte) — gracz staje się gościem.
+      // Limit prób (429) i błędy serwera traktujemy jak brak sieci.
       store(null);
       auth.onSessionLost?.();
       return null;
     }
-    return current.access_token; // brak sieci — sesja zostaje, zapytanie i tak pójdzie jak offline
+    return current.access_token; // brak sieci / limit / błąd serwera — sesja zostaje
   }
 
   const auth = {
@@ -125,13 +143,15 @@ export function createAuth({
       const token = session?.access_token;
       store(null);
       refreshing = null;
-      if (enabled && token) await call('/auth/v1/logout', undefined, { Authorization: `Bearer ${token}` });
+      // scope=local: wylogowanie tylko tego urządzenia, inne zostają zalogowane
+      if (enabled && token) await call('/auth/v1/logout?scope=local', undefined, { Authorization: `Bearer ${token}` });
       return { ok: true, error: null };
     },
 
     // Ważny token zalogowanego gracza (odświeżany, gdy zaraz wygaśnie) albo null
     async getToken() {
       if (!session) return null;
+      adoptNewerStored();
       if (session.expires_at - now() / 1000 > AUTH.refreshMarginS) return session.access_token;
       refreshing ??= refresh().finally(() => { refreshing = null; });
       return refreshing;
