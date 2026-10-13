@@ -1,5 +1,6 @@
 // Boss „El Diablo” — jeździec na koniu, wachlarz pocisków i dynamit.
 import { BOSS, WIDTH, PLAYER } from '../config.js';
+import { revive } from '../serial.js';
 
 export function bossMaxHp(bossNumber) {
   return BOSS.baseHp + (bossNumber - 1) * BOSS.hpPerBoss;
@@ -21,6 +22,12 @@ export class Boss {
     this.dynamiteTimer = BOSS.dynamiteInterval;
     this.flash = 0;
     this.t = 0;
+  }
+
+  static fromJSON(data) {
+    return revive(Boss, data, [
+      'number', 'maxHp', 'hp', 'w', 'h', 'x', 'y', 'dir', 'speed', 'fire', 'fanTimer', 'dynamiteTimer', 'flash', 't',
+    ]);
   }
 
   get entering() {

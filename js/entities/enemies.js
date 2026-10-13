@@ -1,6 +1,7 @@
 // Formacja bandytów: ruch w bok, zejście w dół, strzały najniższych w kolumnach.
 // Logika ruchu i wyboru strzelca to czyste funkcje — testowane w js/tests/.
-import { FORMATION, ROW_TYPES, WIDTH, BOSS_EVERY } from '../config.js';
+import { FORMATION, ROW_TYPES, WIDTH, BOSS_EVERY, ENEMY_TYPES } from '../config.js';
+import { revive } from '../serial.js';
 import { aabb } from '../collision.js';
 import { drawSprite } from '../sprites.js';
 
@@ -113,6 +114,17 @@ export class Formation {
     this.shootTimer = this.shootInterval * 1.5;
     this.animTimer = 0;
     this.frame = 0;
+  }
+
+  static fromJSON(data) {
+    const enemies = data?.enemies;
+    const validEnemy = (e) => Number.isInteger(e?.row) && Number.isInteger(e?.col) && e.type in ENEMY_TYPES && typeof e.alive === 'boolean';
+    if (!Array.isArray(enemies) || !enemies.every(validEnemy)) throw new Error('Formation: niepoprawni bandyci');
+    const f = revive(Formation, data, [
+      'x', 'y', 'dir', 'total', 'waveSpeed', 'difficultySpeed', 'shootInterval', 'shootTimer', 'animTimer', 'frame',
+    ]);
+    f.alive = f.enemies.filter((e) => e.alive).length; // liczba żywych zawsze zgodna z listą
+    return f;
   }
 
   get speed() {

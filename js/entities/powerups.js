@@ -1,6 +1,7 @@
 // Bonusy wypadające z wrogów oraz super bonus „Złota podkowa”.
 import { POWERUPS, PLAYER, HEIGHT } from '../config.js';
 import { drawStar, drawHat } from '../sprites.js';
+import { revive } from '../serial.js';
 
 export const POWERUP_INFO = {
   double: { label: 'Podwójny rewolwer', color: '#e67e22' },
@@ -49,6 +50,11 @@ export class PowerUp {
     this.speed = type === 'super' ? POWERUPS.superFallSpeed : POWERUPS.fallSpeed;
     this.t = 0;
     this.dead = false;
+  }
+
+  static fromJSON(data) {
+    if (!(data?.type in POWERUP_INFO)) throw new Error('PowerUp: nieznany typ');
+    return revive(PowerUp, data, ['x', 'y', 'w', 'h', 'speed', 't']);
   }
 
   get rect() {

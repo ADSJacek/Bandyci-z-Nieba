@@ -28,7 +28,8 @@ Status: do przeglądu
 - Grafika **rysowana kodem** na elemencie `<canvas>` (kształty / pixel-art), bez plików graficznych.
   - Wyjątek: opcjonalne tło `assets/background.png` (4:3, np. 800×600 lub 1600×1200). Gdy pliku brak, używane jest tło rysowane kodem.
 - Dźwięk generowany przez **Web Audio API**, bez plików audio.
-- Zapis rekordów i ustawień w **localStorage**.
+- Zapis rekordów, ustawień, profilu gracza i kopii przerwanej gry w **localStorage**.
+- **Supabase** (Postgres) jako baza wyników i przerwanych gier — wyłącznie przez `fetch` do REST API (PostgREST), **bez bibliotek**. Konfiguracja w `js/db-config.js`; bez niej gra działa offline.
 - Stała rozdzielczość logiczna canvasu **800×600**, skalowana do okna z zachowaniem proporcji.
 
 ## 3. Architektura
@@ -53,7 +54,14 @@ js/
   render.js         – tło (pustynia, kaktusy, zachód słońca), HUD, ekrany
   audio.js          – efekty dźwiękowe (Web Audio)
   storage.js        – rekordy i ustawienia w localStorage
+  profile.js        – anonimowy identyfikator urządzenia i pseudonim
+  db-config.js      – adres i publiczny klucz Supabase
+  db.js             – klient REST Supabase (fetch, timeout, tryb offline)
+  serial.js         – odtwarzanie encji z zapisu JSON
+  snapshot.js       – pełny zapis i odtwarzanie stanu rozgrywki
+  persistence.js    – zapis/wznawianie gry, wyniki z kolejką offline, ranking, historia
   tests/            – testy czystych funkcji (node --test)
+supabase/migrations – schemat bazy (tabele, RLS, funkcje RPC)
 ```
 
 ### Zasady projektowe
@@ -63,6 +71,7 @@ js/
 - Logika (kolizje, punktacja, konfiguracja trudności, ruch formacji) oddzielona od rysowania, aby dało się ją testować bez przeglądarki.
 - `delta time` ograniczony do 50 ms (brak „przeskoków” po powrocie do karty).
 - Gdy karta przeglądarki jest ukryta (`visibilitychange`), gra automatycznie się pauzuje.
+- Pętla gry nigdy nie czeka na sieć: zapytania do bazy są asynchroniczne, a ich wyniki trafiają do pól czytanych przez render.
 
 ## 4. Rozgrywka
 
@@ -77,6 +86,10 @@ js/
 | ↑ / ↓ | wybór poziomu trudności w menu |
 | Enter | start gry / powrót do menu |
 | R | restart na ekranie game over |
+| C | wznowienie przerwanej gry (w menu) |
+| N | zmiana pseudonimu (w menu) |
+| H | historia gier (w menu) |
+| Backspace | usuwanie znaku przy wpisywaniu pseudonimu |
 
 ### 4.2 Szeryf (gracz)
 
@@ -167,10 +180,12 @@ Wartości są punktem startowym do strojenia.
 
 ## 5. Ekrany i interfejs
 
-1. **Menu** — tytuł „BANDYCI Z NIEBA” w stylu listu gończego „WANTED”, wybór poziomu trudności, rekord dla wybranego poziomu, instrukcja sterowania. Enter = start.
-2. **Gra** — HUD u góry: wynik, rekord, życia (ikony kapeluszy), numer fali, aktywny bonus z paskiem czasu.
-3. **Pauza** — półprzezroczysta nakładka z napisem „PAUZA”.
-4. **Game over** — „WANTED: DEAD”, wynik końcowy, komunikat „NOWY REKORD!” gdy pobity; Enter = menu, R = restart.
+1. **Pseudonim** — przy pierwszym uruchomieniu (i klawiszem N w menu): wpisanie pseudonimu 1–12 znaków (litery, cyfry, spacja, `_`, `-`); Enter zatwierdza, Esc anuluje zmianę.
+2. **Menu** — tytuł „BANDYCI Z NIEBA” w stylu listu gończego „WANTED”, rekord dla wybranego poziomu, pseudonim gracza, wybór poziomu trudności, „C — wznów” gdy jest przerwana gra, **TOP 10** dla wybranego poziomu, skrót sterowania. Enter = nowa gra.
+3. **Historia** — ostatnie 10 gier z tego urządzenia: data, poziom, fala, wynik.
+4. **Gra** — HUD u góry: wynik, rekord, życia (ikony kapeluszy), numer fali, aktywny bonus z paskiem czasu.
+5. **Pauza** — półprzezroczysta nakładka z napisem „PAUZA”; wznowiona gra startuje w pauzie.
+6. **Game over** — „WANTED: DEAD”, wynik końcowy, „NOWY REKORD!” gdy pobity, miejsce w rankingu (lub informacja o wysłaniu później); Enter = menu, R = restart.
 
 ### Styl wizualny
 
@@ -186,9 +201,21 @@ Wartości są punktem startowym do strojenia.
 
 ## 7. Zapis danych
 
-- Klucz `arcaneInvaders.highscores` → obiekt `{ latwy, normalny, trudny }` z najlepszym wynikiem na każdy poziom.
-- Klucz `arcaneInvaders.muted` → `true` / `false`.
-- Każdy odczyt i zapis w `try/catch`; przy braku dostępu do localStorage gra działa dalej bez rekordów.
+### localStorage
+- `arcaneInvaders.highscores` → `{ latwy, normalny, trudny }` — lokalny najlepszy wynik na poziom.
+- `arcaneInvaders.muted` → `true` / `false`.
+- `arcaneInvaders.deviceId` → losowy UUID urządzenia (bez logowania).
+- `arcaneInvaders.nick` → pseudonim gracza.
+- `arcaneInvaders.savedGame` → kopia ostatniego zapisu przerwanej gry (albo znacznik `discarded` po jej zakończeniu).
+- `arcaneInvaders.scoreQueue` → wyniki niewysłane do bazy (maks. 20), dosyłane przy wejściu do menu.
+- Każdy odczyt i zapis w `try/catch`; przy braku dostępu do localStorage gra działa dalej.
+
+### Supabase
+- Tabela `scores` — każda zakończona gra: pseudonim, poziom, wynik, fala, data. Odczyt publiczny **bez kolumny `device_id`** (identyfikator otwiera dostęp do zapisu gry), dopisywanie dozwolone, zmiana i usuwanie zabronione. Historię gracza zwraca funkcja `my_history`.
+- Tabela `saved_games` — jedna przerwana gra na urządzenie (pełny snapshot JSON). Dostęp wyłącznie przez funkcje `save_game`, `load_game`, `delete_game`.
+- Zapis przerwanej gry: przy pauzie, ukryciu karty, wyjściu do menu, zamknięciu karty oraz co 10 s gry. Usunięcie: przy game over i rozpoczęciu nowej gry.
+- Wznowienie z nowszego z zapisów: lokalnego lub z bazy. Zapis w innej wersji formatu jest odrzucany z komunikatem.
+- Schemat w `supabase/migrations/`. Klucz publiczny w `js/db-config.js` jest jawny z założenia — bez logowania nie da się całkowicie wykluczyć sfałszowanych wyników.
 
 ## 8. Testy
 
@@ -198,7 +225,12 @@ Wartości są punktem startowym do strojenia.
   - konfiguracja poziomów trudności,
   - ruch formacji (odbicie od krawędzi, zejście w dół),
   - wybór strzelającego bandyty (najniższy w kolumnie),
-  - odczyt/zapis rekordów (z atrapą localStorage).
+  - odczyt/zapis rekordów (z atrapą localStorage),
+  - profil gracza (walidacja pseudonimu, UUID także bez `crypto.randomUUID`),
+  - klient bazy (atrapa `fetch`: adresy, nagłówki, błędy, timeout),
+  - snapshot gry (zapis → JSON → odtworzenie, odrzucanie uszkodzonych zapisów),
+  - warstwa zapisu (kolejność zapisów, kolejka offline, wybór nowszego zapisu),
+  - przejścia stanów gry i ekrany (z atrapą DOM/canvas).
 - Test manualny: przejście pełnego cyklu z kryteriów sukcesu na każdym poziomie trudności.
 
 ## 9. Poza zakresem (pierwsza wersja)
@@ -206,5 +238,5 @@ Wartości są punktem startowym do strojenia.
 - Sterowanie dotykiem i myszą, wersja mobilna.
 - Muzyka w tle.
 - Tryb wieloosobowy.
-- Ranking online.
+- Logowanie graczy i synchronizacja między urządzeniami; walidacja wyników po stronie serwera.
 - Pliki graficzne i dźwiękowe.

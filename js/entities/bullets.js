@@ -1,5 +1,6 @@
 // Pociski gracza i wrogów, dynamit bossa oraz (wizualny) wybuch.
 import { WIDTH, HEIGHT } from '../config.js';
+import { revive } from '../serial.js';
 
 export class Bullet {
   constructor(x, y, vx, vy, w, h, owner) {
@@ -11,6 +12,10 @@ export class Bullet {
     this.h = h;
     this.owner = owner; // 'player' | 'enemy'
     this.dead = false;
+  }
+
+  static fromJSON(data) {
+    return revive(Bullet, data, ['x', 'y', 'vx', 'vy', 'w', 'h']);
   }
 
   get rect() {
@@ -51,6 +56,10 @@ export class Dynamite {
     this.h = 16;
     this.t = 0;
     this.dead = false;
+  }
+
+  static fromJSON(data) {
+    return revive(Dynamite, data, ['x', 'y', 'vx', 'vy', 'w', 'h', 't']);
   }
 
   get rect() {

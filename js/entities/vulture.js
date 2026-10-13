@@ -1,5 +1,6 @@
 // Sęp przelatujący przez górną część ekranu — bonus punktowy.
 import { VULTURE, WIDTH } from '../config.js';
+import { revive } from '../serial.js';
 
 // Losowo 50–300 pkt, co 50
 export function vulturePoints(rng = Math.random) {
@@ -19,6 +20,10 @@ export class Vulture {
     this.x = dir > 0 ? -this.w : WIDTH;
     this.y = VULTURE.y;
     this.t = 0;
+  }
+
+  static fromJSON(data) {
+    return revive(Vulture, data, ['dir', 'w', 'h', 'x', 'y', 't']);
   }
 
   get rect() {

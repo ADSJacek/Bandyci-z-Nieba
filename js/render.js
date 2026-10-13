@@ -1,7 +1,8 @@
-// Rysowanie tła (pustynia o zachodzie słońca), HUD i ekranów menu / pauzy / game over.
+// Rysowanie tła (pustynia o zachodzie słońca), HUD i ekranów: menu, pseudonim,
+// historia gier, pauza, game over.
 import {
   WIDTH, HEIGHT, HORIZON_Y, HUD_HEIGHT, WAVE_BANNER_TIME,
-  FONT_TITLE, FONT_TEXT, DIFFICULTY_ORDER, DIFFICULTIES, ENEMY_TYPES, POWERUPS, VISUALS,
+  FONT_TITLE, FONT_TEXT, DIFFICULTY_ORDER, DIFFICULTIES, ENEMY_TYPES, POWERUPS, VISUALS, PERSISTENCE,
 } from './config.js';
 import { drawSprite, drawHat } from './sprites.js';
 import { drawPowerupIcon } from './entities/powerups.js';
@@ -16,7 +17,7 @@ let background = null;
 
 // Opcjonalna grafika tła z pliku; dopóki się nie wczyta (lub gdy jej brak) — tło rysowane kodem
 const bgImage = new Image();
-bgImage.src = 'assets/background.png';
+bgImage.src = 'assets/jacek.png';
 
 export function drawBackground(ctx) {
   if (bgImage.complete && bgImage.naturalWidth) {
@@ -307,45 +308,73 @@ export function drawMenu(ctx, game) {
   text(ctx, 'Z NIEBA', cx, py + 294, { size: 40, color: '#7a1f12', shadow: false });
   text(ctx, 'ŻYWI LUB MARTWI', cx, py + 332, { size: 16, font: FONT_TEXT, color: INK, shadow: false });
   text(ctx, 'NAGRODA', cx, py + 378, { size: 20, color: INK, shadow: false });
-  text(ctx, `$ ${game.highscores[game.difficultyKey]}`, cx, py + 418, { size: 34, color: INK, shadow: false });
+  text(ctx, `$ ${game.savedRecord}`, cx, py + 418, { size: 34, color: INK, shadow: false });
   text(ctx, `rekord — poziom ${game.difficulty.label.toLowerCase()}`, cx, py + 450, { size: 13, font: FONT_TEXT, color: INK, shadow: false });
 
-  // Prawy panel: poziom trudności i sterowanie
+  // Cennik bandytów pod listem gończym
+  ['herszt', 'rewolwerowiec', 'opryszek'].forEach((type, i) => {
+    const x = 80 + i * 105;
+    drawSprite(ctx, type, 0, x, 548, 2);
+    text(ctx, `= ${ENEMY_TYPES[type].points}`, x + 44, 557, { size: 15, font: FONT_TEXT });
+  });
+
+  // Prawy panel: gracz, poziom trudności, wznowienie, ranking, sterowanie
   const rx = 600;
-  text(ctx, 'POZIOM TRUDNOŚCI', rx, 110, { size: 24 });
+  text(ctx, `szeryf: ${game.profile.nick}`, rx, 34, { size: 15, font: FONT_TEXT, color: '#f4c27a' });
+  text(ctx, 'POZIOM TRUDNOŚCI', rx, 74, { size: 22 });
   DIFFICULTY_ORDER.forEach((key, i) => {
-    const y = 165 + i * 46;
+    const y = 112 + i * 38;
     const selected = i === game.difficultyIndex;
     if (selected) {
       ctx.fillStyle = '#7a4a22';
-      ctx.fillRect(rx - 110, y - 18, 220, 36);
+      ctx.fillRect(rx - 110, y - 16, 220, 32);
       ctx.strokeStyle = '#3b2314';
       ctx.lineWidth = 2;
-      ctx.strokeRect(rx - 110, y - 18, 220, 36);
+      ctx.strokeRect(rx - 110, y - 16, 220, 32);
       text(ctx, '►', rx - 92, y, { size: 16, color: GOLD, shadow: false });
       text(ctx, '◄', rx + 92, y, { size: 16, color: GOLD, shadow: false });
     }
-    text(ctx, DIFFICULTIES[key].label.toUpperCase(), rx, y, { size: 22, color: selected ? '#fff3d6' : 'rgba(255, 226, 168, 0.55)' });
+    text(ctx, DIFFICULTIES[key].label.toUpperCase(), rx, y, { size: 20, color: selected ? '#fff3d6' : 'rgba(255, 226, 168, 0.55)' });
   });
   const d = game.difficulty;
-  text(ctx, `życia: ${d.lives}  ·  punkty ×${d.scoreMultiplier.toFixed(1)}`, rx, 310, { size: 15, font: FONT_TEXT });
+  text(ctx, `życia: ${d.lives}  ·  punkty ×${d.scoreMultiplier.toFixed(1)}`, rx, 222, { size: 14, font: FONT_TEXT });
 
-  if (blink(game.time, 1)) text(ctx, 'ENTER — START', rx, 355, { size: 28, color: GOLD });
+  if (blink(game.time, 1)) text(ctx, 'ENTER — NOWA GRA', rx, 254, { size: 24, color: GOLD });
+
+  const p = game.persistence;
+  if (p.notice) {
+    text(ctx, p.notice, rx, 284, { size: 13, font: FONT_TEXT, color: '#ff8a6a' });
+  } else if (p.saved) {
+    const level = DIFFICULTIES[p.saved.difficulty].label.toLowerCase();
+    text(ctx, `C — wznów: ${level}, fala ${p.saved.wave}, $ ${p.saved.score}`, rx, 284, { size: 14, font: FONT_TEXT, color: GOLD });
+  }
+
+  drawLeaderboard(ctx, p.leaderboard, d.label, rx, 314);
 
   const controls = [
-    '← → / A D — ruch',
-    'SPACJA — strzał',
-    'P / ESC — pauza',
-    'M — dźwięk',
-    '↑ ↓ — poziom trudności',
+    '← → / A D — ruch  ·  SPACJA — strzał',
+    'P / ESC — pauza  ·  M — dźwięk  ·  ↑ ↓ — poziom',
+    'N — zmień pseudonim  ·  H — historia gier',
   ];
-  controls.forEach((line, i) => text(ctx, line, rx, 402 + i * 22, { size: 15, font: FONT_TEXT }));
+  controls.forEach((line, i) => text(ctx, line, rx, 520 + i * 20, { size: 13, font: FONT_TEXT }));
+}
 
-  // Cennik bandytów
-  ['herszt', 'rewolwerowiec', 'opryszek'].forEach((type, i) => {
-    const x = 470 + i * 100;
-    drawSprite(ctx, type, 0, x, 526, 2);
-    text(ctx, `= ${ENEMY_TYPES[type].points}`, x + 44, 535, { size: 15, font: FONT_TEXT });
+// TOP 10 dla wybranego poziomu; przy wczytywaniu zostają poprzednie wiersze
+function drawLeaderboard(ctx, board, label, cx, y) {
+  text(ctx, `TOP ${PERSISTENCE.leaderboardSize} — ${label.toUpperCase()}`, cx, y, { size: 18 });
+  const rows = board.rows;
+  if (rows.length === 0) {
+    const messages = { error: 'Ranking niedostępny', ok: 'Brak wyników — bądź pierwszy!' };
+    text(ctx, messages[board.status] ?? 'Wczytywanie…', cx, y + 30, { size: 14, font: FONT_TEXT, color: 'rgba(255, 226, 168, 0.7)' });
+    return;
+  }
+  rows.forEach((row, i) => {
+    const ry = y + 26 + i * 17;
+    const style = { size: 13, font: FONT_TEXT, color: i === 0 ? GOLD : CREAM, shadow: false };
+    text(ctx, `${i + 1}.`, cx - 146, ry, { ...style, align: 'right' });
+    text(ctx, row.nick, cx - 138, ry, { ...style, align: 'left' });
+    text(ctx, `fala ${row.wave}`, cx + 70, ry, { ...style, align: 'right' });
+    text(ctx, String(row.score), cx + 160, ry, { ...style, align: 'right' });
   });
 }
 
@@ -386,5 +415,81 @@ export function drawGameOver(ctx, game) {
     text(ctx, `rekord: ${game.record}`, cx, py + 360, { size: 16, font: FONT_TEXT, color: INK, shadow: false });
   }
 
+  // Co się stało z wynikiem w bazie
+  const result = game.persistence.lastResult;
+  if (result) {
+    let msg = 'Zapisywanie wyniku…';
+    if (result.status === 'ok') msg = result.rank ? `Miejsce w rankingu: #${result.rank}` : 'Wynik zapisany w rankingu';
+    else if (result.status === 'queued') msg = 'Brak połączenia — wynik wyślemy później';
+    text(ctx, msg, cx, 500, { size: 18, font: FONT_TEXT, color: GOLD });
+  }
+
   text(ctx, 'ENTER — MENU        R — RESTART', cx, 530, { size: 22 });
+}
+
+// „13.10.2026 09:05” w strefie czasowej przeglądarki
+export function formatDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function drawNickEntry(ctx, game) {
+  ctx.fillStyle = 'rgba(20, 8, 4, 0.55)';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  const pw = 440;
+  const ph = 300;
+  const px = (WIDTH - pw) / 2;
+  const py = 130;
+  const cx = WIDTH / 2;
+  poster(ctx, px, py, pw, ph);
+  text(ctx, 'PODAJ PSEUDONIM', cx, py + 60, { size: 34, color: INK, shadow: false });
+  text(ctx, 'tak cię zapamięta Dziki Zachód', cx, py + 100, { size: 15, font: FONT_TEXT, color: INK, shadow: false });
+
+  // Pole tekstowe z migającym kursorem
+  ctx.fillStyle = 'rgba(59, 35, 20, 0.15)';
+  ctx.fillRect(cx - 150, py + 130, 300, 50);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cx - 150, py + 130, 300, 50);
+  const cursor = blink(game.time, 2) ? '_' : ' ';
+  text(ctx, game.nickDraft + cursor, cx, py + 156, { size: 28, color: '#7a1f12', shadow: false });
+  text(ctx, `1–${PERSISTENCE.nickMaxLength} znaków: litery, cyfry, spacja, _ -`, cx, py + 210, { size: 13, font: FONT_TEXT, color: INK, shadow: false });
+
+  const hint = game.profile.nick ? 'ENTER — zatwierdź     ESC — anuluj' : 'ENTER — zatwierdź';
+  text(ctx, hint, cx, py + ph + 40, { size: 20 });
+}
+
+export function drawHistory(ctx, game) {
+  ctx.fillStyle = 'rgba(20, 8, 4, 0.55)';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  const cx = WIDTH / 2;
+  poster(ctx, 120, 50, 560, 480);
+  text(ctx, 'TWOJE OSTATNIE GRY', cx, 100, { size: 34, color: INK, shadow: false });
+  text(ctx, `szeryf ${game.profile.nick ?? ''}`, cx, 138, { size: 15, font: FONT_TEXT, color: INK, shadow: false });
+
+  const cols = [
+    { x: 175, align: 'left', label: 'DATA', value: (r) => formatDate(r.created_at) },
+    { x: 390, align: 'left', label: 'POZIOM', value: (r) => DIFFICULTIES[r.difficulty]?.label ?? r.difficulty },
+    { x: 540, align: 'right', label: 'FALA', value: (r) => String(r.wave) },
+    { x: 630, align: 'right', label: 'WYNIK', value: (r) => String(r.score) },
+  ];
+  for (const c of cols) text(ctx, c.label, c.x, 178, { size: 14, font: FONT_TEXT, color: INK, shadow: false, align: c.align });
+  ctx.fillStyle = INK;
+  ctx.fillRect(165, 190, 470, 2);
+
+  const { status, rows } = game.persistence.history;
+  if (rows.length === 0) {
+    const messages = { error: 'Historia niedostępna — brak połączenia z bazą', ok: 'Brak rozegranych gier' };
+    text(ctx, messages[status] ?? 'Wczytywanie…', cx, 260, { size: 16, font: FONT_TEXT, color: INK, shadow: false });
+  }
+  rows.forEach((row, i) => {
+    const y = 212 + i * 28;
+    for (const c of cols) text(ctx, c.value(row), c.x, y, { size: 15, font: FONT_TEXT, color: INK, shadow: false, align: c.align });
+  });
+
+  text(ctx, 'ESC / ENTER — powrót', cx, 565, { size: 20 });
 }
