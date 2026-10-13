@@ -224,6 +224,8 @@ export class Game {
       this.storage.saveMuted(this.audio.toggleMute());
     }
 
+    input.captureText = this.state === STATE.LOGIN;
+
     switch (this.state) {
       case STATE.LOGIN:
         this.updateLogin();

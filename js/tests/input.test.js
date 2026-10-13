@@ -30,3 +30,17 @@ test('skróty z Ctrl lub Cmd nie trafiają do pola tekstowego', () => {
   input.endFrame();
   assert.deepEqual(input.typed, []);
 });
+
+test('przechwytywanie tekstu: znaki nie trafiają do przeglądarki (Firefox: ukośnik i apostrof otwierają szukanie)', () => {
+  const target = fakeTarget();
+  const input = new Input(target);
+  let prevented = 0;
+  const press = (init) => target.keydown({ ...init, preventDefault() { prevented++; } });
+  press({ code: 'Slash', key: '/' });
+  assert.equal(prevented, 0); // poza ekranem logowania przeglądarka działa normalnie
+  input.captureText = true;
+  press({ code: 'Slash', key: '/' });
+  press({ code: 'Quote', key: "'" });
+  press({ code: 'KeyV', key: 'v', ctrlKey: true }); // skrót zostaje przeglądarce
+  assert.equal(prevented, 2);
+});
