@@ -211,7 +211,7 @@ Wartości są punktem startowym do strojenia.
 - Każdy odczyt i zapis w `try/catch`; przy braku dostępu do localStorage gra działa dalej.
 
 ### Supabase
-- Tabela `scores` — każda zakończona gra: pseudonim, poziom, wynik, fala, data. Odczyt publiczny, dopisywanie dozwolone, zmiana i usuwanie zabronione (RLS).
+- Tabela `scores` — każda zakończona gra: pseudonim, poziom, wynik, fala, data. Odczyt publiczny **bez kolumny `device_id`** (identyfikator otwiera dostęp do zapisu gry), dopisywanie dozwolone, zmiana i usuwanie zabronione. Historię gracza zwraca funkcja `my_history`.
 - Tabela `saved_games` — jedna przerwana gra na urządzenie (pełny snapshot JSON). Dostęp wyłącznie przez funkcje `save_game`, `load_game`, `delete_game`.
 - Zapis przerwanej gry: przy pauzie, ukryciu karty, wyjściu do menu, zamknięciu karty oraz co 10 s gry. Usunięcie: przy game over i rozpoczęciu nowej gry.
 - Wznowienie z nowszego z zapisów: lokalnego lub z bazy. Zapis w innej wersji formatu jest odrzucany z komunikatem.

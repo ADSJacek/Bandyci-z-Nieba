@@ -77,8 +77,9 @@ export function createDb({ url, key, fetchFn = globalThis.fetch?.bind(globalThis
       return total === null ? fail('bad-count') : { ok: true, data: total + 1, error: null };
     },
 
+    // Przez funkcję w bazie — kolumna device_id nie jest publicznie czytelna
     myHistory(deviceId, limit = PERSISTENCE.historySize) {
-      return request(query({ select: SCORE_COLUMNS, device_id: `eq.${deviceId}`, order: 'created_at.desc', limit: String(limit) }));
+      return rpc('my_history', { p_device_id: deviceId, p_limit: limit });
     },
 
     // keepalive: zapytanie dokończy się także po zamknięciu karty (limit 64 kB treści)

@@ -62,13 +62,13 @@ test('topScores: filtr poziomu, sortowanie, limit', async () => {
   assert.equal(fetchFn.calls[0].init.method, 'GET');
 });
 
-test('myHistory: filtr urządzenia, najnowsze najpierw', async () => {
+test('myHistory: RPC my_history (device_id nie jest publicznie czytelny)', async () => {
   const fetchFn = fakeFetch([{ body: '[]' }]);
   await dbWith(fetchFn).myHistory('dev-1');
-  const url = new URL(fetchFn.calls[0].url);
-  assert.equal(url.searchParams.get('device_id'), 'eq.dev-1');
-  assert.equal(url.searchParams.get('order'), 'created_at.desc');
-  assert.equal(url.searchParams.get('limit'), '10');
+  const [call] = fetchFn.calls;
+  assert.equal(call.url, `${BASE}/rest/v1/rpc/my_history`);
+  assert.equal(call.init.method, 'POST');
+  assert.deepEqual(call.body, { p_device_id: 'dev-1', p_limit: 10 });
 });
 
 test('rankOf: liczba lepszych wyników + 1 z nagłówka Content-Range', async () => {
