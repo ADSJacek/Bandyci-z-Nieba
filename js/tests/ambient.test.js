@@ -39,6 +39,7 @@ test('pociąg znika po przejechaniu ekranu i rozwianiu dymu', () => {
   a.trainTimer = 0.01;
   run(a, 0.1);
   a.train.x = 900;
+  for (const r of a.train.riders) r.x = 880; // jeźdźcy też już za ekranem
   run(a, 8);
   assert.equal(a.train, null);
 });
@@ -80,5 +81,50 @@ test('rysowanie we wszystkich stanach nie rzuca wyjątków', async () => {
     a.gustTimer = 0.01;
     run(a, 2);
     assert.doesNotThrow(() => a.draw(fakeContext));
+  }
+});
+
+test('pociąg częściej: pierwszy po 3–8 s, kolejne co 10–18 s', () => {
+  const a = new Ambient(1);
+  assert.ok(a.trainTimer >= VISUALS.trainFirstMin && a.trainTimer <= VISUALS.trainFirstMax);
+  assert.ok(VISUALS.trainMinDelay === 10 && VISUALS.trainMaxDelay === 18);
+  a.trainTimer = 0.01;
+  run(a, 0.1);
+  assert.ok(a.trainTimer >= 10 && a.trainTimer <= 18);
+});
+
+test('napad: 2–4 jeźdźców dogania wagony i strzela z łuków', () => {
+  const a = new Ambient(1);
+  a.trainTimer = 0.01;
+  run(a, 0.1);
+  const { riders } = a.train;
+  assert.ok(riders.length >= VISUALS.ridersMin && riders.length <= VISUALS.ridersMax, `jeźdźców: ${riders.length}`);
+  const gap0 = a.train.x - riders[0].x;
+  let arrows = 0;
+  for (let t = 0; t < 8; t += 0.05) {
+    a.update(0.05);
+    arrows = Math.max(arrows, a.train.arrows.length);
+  }
+  assert.ok(a.train.x - riders[0].x < gap0, 'jeździec zbliżył się do pociągu');
+  assert.ok(arrows > 0, 'strzały w locie');
+  assert.ok(a.train.kicks.length > 0, 'kurz spod kopyt');
+});
+
+test('napad kończy się razem z przejazdem: jeźdźcy odjeżdżają za pociągiem', () => {
+  const a = new Ambient(1);
+  a.trainTimer = 0.01;
+  run(a, 0.1);
+  a.train.x = 900;
+  for (const r of a.train.riders) r.x = 860;
+  run(a, 10);
+  assert.equal(a.train, null);
+});
+
+test('mniej jeźdźców przy niższym suwaku', () => {
+  for (let i = 0; i < 20; i++) {
+    const a = new Ambient(0.5);
+    a.trainTimer = 0.01;
+    run(a, 0.3);
+    assert.ok(a.train.riders.length <= Math.round(VISUALS.ridersMax * 0.5));
   }
 });

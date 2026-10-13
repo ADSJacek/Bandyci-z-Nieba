@@ -144,13 +144,22 @@ export const VISUALS = {
   dustGustMaxDelay: 30,
   dustGustTime: 3,       // czas trwania podmuchu (s)
   // Pociąg parowy na horyzoncie
-  trainMinDelay: 25,     // s między przejazdami
-  trainMaxDelay: 45,
+  trainFirstMin: 3,      // s do pierwszego przejazdu
+  trainFirstMax: 8,
+  trainMinDelay: 10,     // s między przejazdami
+  trainMaxDelay: 18,
   trainSpeed: 28,        // px/s
   trainY: 424,           // linia kół pociągu (horyzont tła)
   trainCars: 4,
   trainPuffInterval: 0.35, // s między kłębami dymu
   smokeLife: 3,          // czas życia kłębu dymu (s)
+  // Napad jeźdźców na pociąg
+  ridersMin: 2,          // jeźdźców przy 100% animacji
+  ridersMax: 4,
+  riderCatchUp: 60,      // px/s ponad prędkość pociągu przy doganianiu
+  riderShotMin: 1,       // s między strzałami z łuku
+  riderShotMax: 2,
+  arrowLife: 0.8,        // czas lotu strzały (s)
   animStep: 0.1,         // krok suwaka „ANIMACJE” (10%)
 };
 

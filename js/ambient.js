@@ -1,5 +1,6 @@
 // Ożywione tło: dryfujące chmury, migoczące gwiazdy, toczący się krzak (tumbleweed),
-// klucze ptaków, krążące sępy, pył z podmuchami wiatru i pociąg parowy na horyzoncie.
+// klucze ptaków, krążące sępy, pył z podmuchami wiatru i pociąg parowy na horyzoncie
+// z napadem jeźdźców.
 // Czysto dekoracyjne — nie biorą udziału w kolizjach. Natężenie 0–1 (suwak „ANIMACJE”):
 // liczba drobin i sępów, częstotliwość ptaków / pociągu / krzaka, prędkość chmur i migotanie.
 import { WIDTH, HORIZON_Y, HUD_HEIGHT, VISUALS } from './config.js';
@@ -44,7 +45,7 @@ export class Ambient {
     this.gust = 0;            // pozostały czas podmuchu wiatru
     this.gustTimer = between(VISUALS.dustGustMinDelay, VISUALS.dustGustMaxDelay);
     this.train = null;
-    this.trainTimer = between(5, VISUALS.trainMinDelay);
+    this.trainTimer = between(VISUALS.trainFirstMin, VISUALS.trainFirstMax);
     this.circlers = [];
     this.setLevel(level);
   }
@@ -155,6 +156,18 @@ export class Ambient {
     }
   }
 
+  // Jeźdźcy napadający na pociąg: startują daleko z tyłu i doganiają wagony
+  makeRiders(k) {
+    const n = Math.round(Math.floor(between(VISUALS.ridersMin, VISUALS.ridersMax + 1)) * k);
+    return Array.from({ length: n }, (_, i) => ({
+      x: -160 - i * 40,
+      lane: i % 2 ? 14 : 8,                 // dwa pasy pod torami
+      phase: between(0, Math.PI * 2),
+      shotTimer: between(VISUALS.riderShotMin, VISUALS.riderShotMax),
+      kickTimer: 0,
+    }));
+  }
+
   updateTrain(dt, k) {
     const tr = this.train;
     if (tr) {
@@ -171,14 +184,46 @@ export class Ambient {
         s.r += 3.5 * dt;
       }
       tr.smoke = tr.smoke.filter((s) => s.t < VISUALS.smokeLife);
-      if (tr.x > WIDTH + 140 && tr.smoke.length === 0) this.train = null;
+      this.updateRiders(tr, dt, k);
+      const ridersGone = tr.riders.every((r) => r.x > WIDTH + 30);
+      if (tr.x > WIDTH + 140 && tr.smoke.length === 0 && ridersGone && tr.arrows.length === 0) this.train = null;
       return;
     }
     this.trainTimer -= dt * k;
     if (this.trainTimer <= 0 && k > 0) {
-      this.train = { x: -20, smoke: [], puffTimer: 0 };
+      this.train = { x: -20, smoke: [], puffTimer: 0, riders: this.makeRiders(k), arrows: [], kicks: [] };
       this.trainTimer = between(VISUALS.trainMinDelay, VISUALS.trainMaxDelay);
     }
+  }
+
+  // Każdy jeździec celuje w swój wagon; gdy go dogoni — galopuje obok i strzela z łuku
+  updateRiders(tr, dt, k) {
+    tr.riders.forEach((r, i) => {
+      const target = tr.x - 40 - i * 24;
+      const diff = target - r.x;
+      const catchUp = Math.max(-30, Math.min(VISUALS.riderCatchUp, diff * 1.5));
+      r.x += (VISUALS.trainSpeed + catchUp) * dt;
+      r.phase += dt * 12;
+      r.kickTimer -= dt;
+      if (r.kickTimer <= 0 && r.x > -20 && r.x < WIDTH + 20) {
+        r.kickTimer = 0.12;
+        tr.kicks.push({ x: r.x - 8, y: VISUALS.trainY + r.lane, t: 0 });
+      }
+      r.shotTimer -= dt * k;
+      if (r.shotTimer <= 0 && Math.abs(diff) < 25 && tr.x < WIDTH) {
+        r.shotTimer = between(VISUALS.riderShotMin, VISUALS.riderShotMax);
+        tr.arrows.push({ x: r.x + 6, y: VISUALS.trainY + r.lane - 12, vx: between(70, 100), vy: -45, t: 0 });
+      }
+    });
+    for (const a of tr.arrows) {
+      a.t += dt;
+      a.x += a.vx * dt;
+      a.y += a.vy * dt;
+      a.vy += 120 * dt;          // łuk lotu strzały
+    }
+    tr.arrows = tr.arrows.filter((a) => a.t < VISUALS.arrowLife);
+    for (const c of tr.kicks) c.t += dt;
+    tr.kicks = tr.kicks.filter((c) => c.t < 0.5);
   }
 
   draw(ctx) {
@@ -197,6 +242,7 @@ export class Ambient {
 
     this.drawCirclers(ctx);
     this.drawTrain(ctx);
+    this.drawRiders(ctx);
     this.drawFlock(ctx);
     this.drawDust(ctx);
     this.drawWeed(ctx);
@@ -259,6 +305,71 @@ export class Ambient {
     }
     for (let wx = x + 2; wx > x - 50 - VISUALS.trainCars * 23; wx -= 8) {
       ctx.fillRect(wx, y - 2, 3, 2);      // koła
+    }
+  }
+
+  // Jeźdźcy: koń w galopie, wojownik z pióropuszem i łukiem; kurz spod kopyt i strzały
+  drawRiders(ctx) {
+    const tr = this.train;
+    if (!tr) return;
+    ctx.fillStyle = '#e2c49a';
+    for (const c of tr.kicks) {
+      ctx.globalAlpha = 0.4 * (1 - c.t / 0.5);
+      ctx.beginPath();
+      ctx.arc(c.x - c.t * 10, c.y - c.t * 6, 2 + c.t * 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = SILHOUETTE;
+    ctx.lineWidth = 1.5;
+    for (const a of tr.arrows) {
+      const len = 6 / Math.hypot(a.vx, a.vy);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(a.x - a.vx * len, a.y - a.vy * len);
+      ctx.stroke();
+    }
+
+    for (const r of tr.riders) {
+      if (r.x < -30 || r.x > WIDTH + 30) continue;
+      const x = Math.round(r.x);
+      const bob = Math.abs(Math.sin(r.phase)) * 1.5;
+      const y = VISUALS.trainY + r.lane - bob; // linia kopyt
+      ctx.fillStyle = SILHOUETTE;
+      ctx.strokeStyle = SILHOUETTE;
+      // koń: tułów, szyja z łbem, ogon
+      ctx.beginPath();
+      ctx.ellipse(x, y - 6, 7, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(x + 5, y - 11, 3, 5);
+      ctx.fillRect(x + 6, y - 12, 5, 3);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x - 7, y - 7);
+      ctx.lineTo(x - 11, y - 4);
+      // nogi w galopie — pary przednia i tylna na zmianę
+      const swing = Math.sin(r.phase) * 3;
+      ctx.moveTo(x - 4, y - 4); ctx.lineTo(x - 4 - swing, y);
+      ctx.moveTo(x - 2, y - 4); ctx.lineTo(x - 2 + swing, y);
+      ctx.moveTo(x + 3, y - 4); ctx.lineTo(x + 3 + swing, y);
+      ctx.moveTo(x + 5, y - 4); ctx.lineTo(x + 5 - swing, y);
+      ctx.stroke();
+      // jeździec: tułów, głowa, pióropusz i łuk przed sobą
+      ctx.fillRect(x - 1, y - 15, 3, 7);
+      ctx.beginPath();
+      ctx.arc(x + 0.5, y - 17, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const [fx, fy] of [[-3, -23], [-1, -24], [1, -23]]) {
+        ctx.moveTo(x, y - 18);
+        ctx.lineTo(x + fx, y + fy);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + 4, y - 13, 4, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
     }
   }
 
