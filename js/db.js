@@ -1,7 +1,9 @@
 // Klient bazy Supabase przez REST API (PostgREST) — czysty fetch, bez bibliotek.
-// Każda metoda zwraca { ok, data, error } i nigdy nie rzuca wyjątku:
-// gra działa dalej także bez sieci i bez konfiguracji (error: 'offline').
+// Zalogowany gracz wysyła swój token (RLS w bazie sprawdza auth.uid()), gość
+// tylko klucz publiczny. Każda metoda zwraca { ok, data, error } i nigdy nie
+// rzuca wyjątku: gra działa dalej bez sieci i bez konfiguracji (error: 'offline').
 import { PERSISTENCE } from './config.js';
+import { requestJson } from './http.js';
 
 const SCORE_COLUMNS = 'nick,difficulty,score,wave,created_at';
 
@@ -15,61 +17,48 @@ export function parseContentRangeTotal(header) {
   return Number.isFinite(total) ? total : null;
 }
 
-// Klucz publishable (sb_publishable_…) idzie tylko w `apikey`;
-// starszy klucz anon (JWT) także w Authorization.
-function authHeaders(key) {
+// Gość: klucz publishable (sb_publishable_…) tylko w `apikey`; starszy klucz anon (JWT) także w Authorization
+function guestHeaders(key) {
   return key.startsWith('eyJ') ? { apikey: key, Authorization: `Bearer ${key}` } : { apikey: key };
 }
 
-export function createDb({ url, key, fetchFn = globalThis.fetch?.bind(globalThis), timeoutMs = PERSISTENCE.dbTimeoutMs } = {}) {
+export function createDb({
+  url, key, getToken = async () => null, fetchFn = globalThis.fetch?.bind(globalThis), timeoutMs = PERSISTENCE.dbTimeoutMs,
+} = {}) {
   const enabled = Boolean(url && key && fetchFn);
   const base = String(url ?? '').replace(/\/+$/, '');
 
   async function request(path, { method = 'GET', body, headers = {}, keepalive = false } = {}) {
     if (!enabled) return fail('offline');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetchFn(base + path, {
-        method,
-        keepalive,
-        signal: controller.signal,
-        headers: { ...authHeaders(key), 'Content-Type': 'application/json', ...headers },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      if (!res.ok) return fail(`http-${res.status}`);
-      const text = await res.text();
-      return { ok: true, data: text ? JSON.parse(text) : null, error: null, headers: res.headers };
-    } catch (e) {
-      if (e?.name === 'AbortError') return fail('timeout');
-      return fail(e instanceof SyntaxError ? 'bad-response' : 'network');
-    } finally {
-      clearTimeout(timer);
-    }
+    const token = await getToken();
+    const auth = token ? { apikey: key, Authorization: `Bearer ${token}` } : guestHeaders(key);
+    const res = await requestJson(fetchFn, base + path, { method, body, keepalive, timeoutMs, headers: { ...auth, ...headers } });
+    return res.ok ? { ok: true, data: res.data, error: null, headers: res.headers } : fail(res.error);
   }
 
-  const rpc = (name, args, options = {}) => request(`/rest/v1/rpc/${name}`, { method: 'POST', body: args, ...options });
-  const query = (params) => `/rest/v1/scores?${new URLSearchParams(params)}`;
+  const scores = (params) => `/rest/v1/scores?${new URLSearchParams(params)}`;
+  const savedGame = (params) => `/rest/v1/saved_games?${new URLSearchParams(params)}`;
 
   return {
     enabled,
 
-    submitScore({ deviceId, nick, difficulty, score, wave }) {
+    // Konto (user_id) i login (nick) dopisuje baza — klient wysyła tylko wynik
+    submitScore({ difficulty, score, wave }) {
       return request('/rest/v1/scores', {
         method: 'POST',
-        body: { device_id: deviceId, nick, difficulty, score, wave },
+        body: { difficulty, score, wave },
         headers: { Prefer: 'return=minimal' },
       });
     },
 
     topScores(difficulty, limit = PERSISTENCE.leaderboardSize) {
-      return request(query({ select: SCORE_COLUMNS, difficulty: `eq.${difficulty}`, order: 'score.desc,created_at.asc', limit: String(limit) }));
+      return request(scores({ select: SCORE_COLUMNS, difficulty: `eq.${difficulty}`, order: 'score.desc,created_at.asc', limit: String(limit) }));
     },
 
     // Miejsce w rankingu = liczba lepszych wyników + 1 (baza zwraca samą liczbę)
     async rankOf(difficulty, score) {
       const res = await request(
-        query({ select: 'id', difficulty: `eq.${difficulty}`, score: `gt.${score}`, limit: '1' }),
+        scores({ select: 'id', difficulty: `eq.${difficulty}`, score: `gt.${score}`, limit: '1' }),
         { headers: { Prefer: 'count=exact' } },
       );
       if (!res.ok) return res;
@@ -77,22 +66,28 @@ export function createDb({ url, key, fetchFn = globalThis.fetch?.bind(globalThis
       return total === null ? fail('bad-count') : { ok: true, data: total + 1, error: null };
     },
 
-    // Przez funkcję w bazie — kolumna device_id nie jest publicznie czytelna
-    myHistory(deviceId, limit = PERSISTENCE.historySize) {
-      return rpc('my_history', { p_device_id: deviceId, p_limit: limit });
+    myHistory(userId, limit = PERSISTENCE.historySize) {
+      return request(scores({ select: SCORE_COLUMNS, user_id: `eq.${userId}`, order: 'created_at.desc', limit: String(limit) }));
     },
 
-    // keepalive: zapytanie dokończy się także po zamknięciu karty (limit 64 kB treści)
-    saveGame(deviceId, nick, difficulty, snapshot, { keepalive = false } = {}) {
-      return rpc('save_game', { p_device_id: deviceId, p_nick: nick, p_difficulty: difficulty, p_snapshot: snapshot }, { keepalive });
+    // Upsert jednego zapisu na konto; keepalive: zapytanie dokończy się po zamknięciu karty (limit 64 kB)
+    saveGame(userId, difficulty, snapshot, { keepalive = false } = {}) {
+      return request(savedGame({ on_conflict: 'user_id' }), {
+        method: 'POST',
+        keepalive,
+        body: { user_id: userId, difficulty, snapshot, updated_at: new Date().toISOString() },
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      });
     },
 
-    loadGame(deviceId) {
-      return rpc('load_game', { p_device_id: deviceId });
+    async loadGame(userId) {
+      const res = await request(savedGame({ select: 'difficulty,snapshot,updated_at', user_id: `eq.${userId}`, limit: '1' }));
+      if (!res.ok) return res;
+      return { ok: true, data: Array.isArray(res.data) ? (res.data[0] ?? null) : null, error: null };
     },
 
-    deleteGame(deviceId) {
-      return rpc('delete_game', { p_device_id: deviceId });
+    deleteGame(userId) {
+      return request(savedGame({ user_id: `eq.${userId}` }), { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
     },
   };
 }
