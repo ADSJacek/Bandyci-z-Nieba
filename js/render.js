@@ -1,8 +1,8 @@
-// Rysowanie tła (pustynia o zachodzie słońca), HUD i ekranów: menu, pseudonim,
+// Rysowanie tła (pustynia o zachodzie słońca), HUD i ekranów: logowanie, menu,
 // historia gier, pauza, game over.
 import {
   WIDTH, HEIGHT, HORIZON_Y, HUD_HEIGHT, WAVE_BANNER_TIME,
-  FONT_TITLE, FONT_TEXT, DIFFICULTY_ORDER, DIFFICULTIES, ENEMY_TYPES, POWERUPS, VISUALS, PERSISTENCE,
+  FONT_TITLE, FONT_TEXT, DIFFICULTY_ORDER, DIFFICULTIES, ENEMY_TYPES, POWERUPS, VISUALS, PERSISTENCE, AUTH,
 } from './config.js';
 import { drawSprite, drawHat } from './sprites.js';
 import { drawPowerupIcon } from './entities/powerups.js';
@@ -10,6 +10,18 @@ import { drawPowerupIcon } from './entities/powerups.js';
 const INK = '#3b2314';
 const CREAM = '#ffe2a8';
 const GOLD = '#ffd700';
+
+// Ekran „KTO JEDZIE?”: opcje (kolejność = wybór strzałkami) i komunikaty błędów logowania
+export const LOGIN_OPTIONS = ['signin', 'signup', 'guest'];
+const LOGIN_LABELS = { signin: 'ZALOGUJ', signup: 'ZAREJESTRUJ', guest: 'GRAJ JAKO GOŚĆ' };
+const LOGIN_ERRORS = {
+  'login-zajety': 'Ten login jest już zajęty',
+  'zle-dane': 'Zły login lub hasło',
+  'slabe-haslo': `Hasło musi mieć co najmniej ${AUTH.passwordMin} znaków`,
+  'zly-login': `Login: 1–${PERSISTENCE.nickMaxLength} znaków, litery, cyfry, spacja, _ -`,
+  'potwierdz-email': 'Konto czeka na potwierdzenie e-mail (wyłącz „Confirm email” w Supabase)',
+};
+const LOGIN_ERROR_OFFLINE = 'Brak połączenia z serwerem — możesz grać jako gość';
 
 // --- Tło ---------------------------------------------------------------------
 
@@ -320,7 +332,8 @@ export function drawMenu(ctx, game) {
 
   // Prawy panel: gracz, poziom trudności, wznowienie, ranking, sterowanie
   const rx = 600;
-  text(ctx, `szeryf: ${game.profile.nick}`, rx, 34, { size: 15, font: FONT_TEXT, color: '#f4c27a' });
+  const who = game.auth.user ? `szeryf: ${game.playerName}` : 'gość — wyniki nie trafiają do rankingu';
+  text(ctx, who, rx, 34, { size: 15, font: FONT_TEXT, color: '#f4c27a' });
   text(ctx, 'POZIOM TRUDNOŚCI', rx, 74, { size: 22 });
   DIFFICULTY_ORDER.forEach((key, i) => {
     const y = 112 + i * 38;
@@ -344,6 +357,8 @@ export function drawMenu(ctx, game) {
   const p = game.persistence;
   if (p.notice) {
     text(ctx, p.notice, rx, 284, { size: 13, font: FONT_TEXT, color: '#ff8a6a' });
+  } else if (game.logoutArmed) {
+    text(ctx, 'L ponownie — wyloguj (przerwana gra zostaje na koncie)', rx, 284, { size: 13, font: FONT_TEXT, color: '#ff8a6a' });
   } else if (p.saved) {
     const level = DIFFICULTIES[p.saved.difficulty].label.toLowerCase();
     text(ctx, `C — wznów: ${level}, fala ${p.saved.wave}, $ ${p.saved.score}`, rx, 284, { size: 14, font: FONT_TEXT, color: GOLD });
@@ -354,7 +369,7 @@ export function drawMenu(ctx, game) {
   const controls = [
     '← → / A D — ruch  ·  SPACJA — strzał',
     'P / ESC — pauza  ·  M — dźwięk  ·  ↑ ↓ — poziom',
-    'N — zmień pseudonim  ·  H — historia gier',
+    game.auth.user ? 'L — wyloguj  ·  H — historia gier' : 'L — zaloguj się lub załóż konto',
   ];
   controls.forEach((line, i) => text(ctx, line, rx, 520 + i * 20, { size: 13, font: FONT_TEXT }));
 }
@@ -421,6 +436,7 @@ export function drawGameOver(ctx, game) {
     let msg = 'Zapisywanie wyniku…';
     if (result.status === 'ok') msg = result.rank ? `Miejsce w rankingu: #${result.rank}` : 'Wynik zapisany w rankingu';
     else if (result.status === 'queued') msg = 'Brak połączenia — wynik wyślemy później';
+    else if (result.status === 'gosc') msg = 'Gość — wynik nie trafia do rankingu';
     text(ctx, msg, cx, 500, { size: 18, font: FONT_TEXT, color: GOLD });
   }
 
@@ -435,31 +451,59 @@ export function formatDate(iso) {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function drawNickEntry(ctx, game) {
+// Ekran „KTO JEDZIE?”: wybór (zaloguj / zarejestruj / gość) albo formularz login + hasło
+export function drawLogin(ctx, game) {
   ctx.fillStyle = 'rgba(20, 8, 4, 0.55)';
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  const pw = 440;
-  const ph = 300;
+  const f = game.loginForm;
+  const pw = 460;
+  const ph = 340;
   const px = (WIDTH - pw) / 2;
-  const py = 130;
+  const py = 110;
   const cx = WIDTH / 2;
   poster(ctx, px, py, pw, ph);
-  text(ctx, 'PODAJ PSEUDONIM', cx, py + 60, { size: 34, color: INK, shadow: false });
-  text(ctx, 'tak cię zapamięta Dziki Zachód', cx, py + 100, { size: 15, font: FONT_TEXT, color: INK, shadow: false });
+  text(ctx, 'KTO JEDZIE?', cx, py + 60, { size: 40, color: INK, shadow: false });
 
-  // Pole tekstowe z migającym kursorem
-  ctx.fillStyle = 'rgba(59, 35, 20, 0.15)';
-  ctx.fillRect(cx - 150, py + 130, 300, 50);
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(cx - 150, py + 130, 300, 50);
+  if (f.step === 'choice') {
+    LOGIN_OPTIONS.forEach((option, i) => {
+      const y = py + 130 + i * 56;
+      const selected = i === f.choice;
+      if (selected) {
+        ctx.fillStyle = 'rgba(122, 74, 34, 0.25)';
+        ctx.fillRect(cx - 150, y - 22, 300, 44);
+        text(ctx, '►', cx - 135, y, { size: 16, color: '#7a1f12', shadow: false });
+      }
+      text(ctx, LOGIN_LABELS[option], cx, y, { size: 24, color: selected ? '#7a1f12' : INK, shadow: false });
+    });
+    text(ctx, 'gość gra bez zapisywania wyników w rankingu', cx, py + ph - 30, { size: 13, font: FONT_TEXT, color: INK, shadow: false });
+    text(ctx, '↑ ↓ — wybór     ENTER — dalej', cx, py + ph + 40, { size: 20 });
+    return;
+  }
+
+  text(ctx, f.mode === 'signup' ? 'nowe konto' : 'logowanie', cx, py + 98, { size: 16, font: FONT_TEXT, color: INK, shadow: false });
   const cursor = blink(game.time, 2) ? '_' : ' ';
-  text(ctx, game.nickDraft + cursor, cx, py + 156, { size: 28, color: '#7a1f12', shadow: false });
-  text(ctx, `1–${PERSISTENCE.nickMaxLength} znaków: litery, cyfry, spacja, _ -`, cx, py + 210, { size: 13, font: FONT_TEXT, color: INK, shadow: false });
+  const fields = [
+    { label: 'LOGIN', value: f.login },
+    { label: 'HASŁO', value: '•'.repeat(Math.min(f.password.length, 16)) }, // hasło nigdy nie jest widoczne
+  ];
+  fields.forEach((field, i) => {
+    const y = py + 150 + i * 70;
+    const active = i === f.field;
+    text(ctx, field.label, cx - 150, y - 24, { size: 13, font: FONT_TEXT, color: INK, shadow: false, align: 'left' });
+    ctx.fillStyle = 'rgba(59, 35, 20, 0.15)';
+    ctx.fillRect(cx - 150, y - 12, 300, 40);
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = active ? 3 : 1;
+    ctx.strokeRect(cx - 150, y - 12, 300, 40);
+    text(ctx, field.value + (active && !f.busy ? cursor : ' '), cx, y + 8, { size: 24, color: '#7a1f12', shadow: false });
+  });
 
-  const hint = game.profile.nick ? 'ENTER — zatwierdź     ESC — anuluj' : 'ENTER — zatwierdź';
-  text(ctx, hint, cx, py + ph + 40, { size: 20 });
+  let status = '';
+  if (f.busy) status = 'Łączenie…';
+  else if (f.error) status = LOGIN_ERRORS[f.error] ?? LOGIN_ERROR_OFFLINE;
+  if (status) text(ctx, status, cx, py + 305, { size: 14, font: FONT_TEXT, color: f.busy ? INK : '#9b1c1c', shadow: false });
+  text(ctx, 'TAB — pole     ENTER — wyślij     ESC — wróć', cx, py + ph + 40, { size: 18 });
 }
 
 export function drawHistory(ctx, game) {
@@ -469,7 +513,7 @@ export function drawHistory(ctx, game) {
   const cx = WIDTH / 2;
   poster(ctx, 120, 50, 560, 480);
   text(ctx, 'TWOJE OSTATNIE GRY', cx, 100, { size: 34, color: INK, shadow: false });
-  text(ctx, `szeryf ${game.profile.nick ?? ''}`, cx, 138, { size: 15, font: FONT_TEXT, color: INK, shadow: false });
+  text(ctx, `szeryf ${game.playerName}`, cx, 138, { size: 15, font: FONT_TEXT, color: INK, shadow: false });
 
   const cols = [
     { x: 175, align: 'left', label: 'DATA', value: (r) => formatDate(r.created_at) },
@@ -483,7 +527,11 @@ export function drawHistory(ctx, game) {
 
   const { status, rows } = game.persistence.history;
   if (rows.length === 0) {
-    const messages = { error: 'Historia niedostępna — brak połączenia z bazą', ok: 'Brak rozegranych gier' };
+    const messages = {
+      error: 'Historia niedostępna — brak połączenia z bazą',
+      ok: 'Brak rozegranych gier',
+      gosc: 'Zaloguj się, aby zapisywać wyniki',
+    };
     text(ctx, messages[status] ?? 'Wczytywanie…', cx, 260, { size: 16, font: FONT_TEXT, color: INK, shadow: false });
   }
   rows.forEach((row, i) => {
