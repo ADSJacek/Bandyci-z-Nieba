@@ -156,3 +156,11 @@ export const PERSISTENCE = {
   scoreQueueMax: 20,     // maks. niewysłanych wyników w kolejce offline
   nickMaxLength: 12,
 };
+
+// Logowanie graczy (Supabase Auth): login + hasło, bez e-maila dla gracza
+export const AUTH = {
+  emailDomain: 'bandyci.local', // techniczny adres konta: u<hex loginu>@bandyci.local
+  passwordMin: 6,
+  passwordMax: 72,
+  refreshMarginS: 60,           // odświeżamy token, gdy do wygaśnięcia zostało mniej (s)
+};

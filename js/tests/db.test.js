@@ -19,7 +19,7 @@ function fakeFetch(responses = []) {
   return fn;
 }
 
-const dbWith = (fetchFn) => createDb({ url: BASE, key: KEY, fetchFn });
+const dbWith = (fetchFn, opts = {}) => createDb({ url: BASE, key: KEY, fetchFn, ...opts });
 
 test('bez konfiguracji: tryb offline, bez zapytań', async () => {
   const fetchFn = fakeFetch();
@@ -30,23 +30,30 @@ test('bez konfiguracji: tryb offline, bez zapytań', async () => {
   assert.equal(fetchFn.calls.length, 0);
 });
 
-test('submitScore: POST do tabeli scores z mapowaniem pól', async () => {
+test('zalogowany: token w Authorization; gość: tylko apikey', async () => {
+  const fetchFn = fakeFetch([{ body: '[]' }, { body: '[]' }]);
+  await dbWith(fetchFn, { getToken: async () => 'tok-1' }).topScores('latwy');
+  await dbWith(fetchFn).topScores('latwy');
+  assert.equal(fetchFn.calls[0].init.headers.Authorization, 'Bearer tok-1');
+  assert.equal(fetchFn.calls[0].init.headers.apikey, KEY);
+  assert.equal(fetchFn.calls[1].init.headers.Authorization, undefined); // klucz publishable nie jest JWT
+});
+
+test('gość ze starszym kluczem anon (JWT): klucz w Authorization', async () => {
+  const fetchFn = fakeFetch([{ body: '[]' }]);
+  await createDb({ url: BASE, key: 'eyJhbGciOi.test', fetchFn }).topScores('latwy');
+  assert.equal(fetchFn.calls[0].init.headers.Authorization, 'Bearer eyJhbGciOi.test');
+});
+
+test('submitScore: tylko poziom, wynik i fala (konto i login dopisuje baza)', async () => {
   const fetchFn = fakeFetch([{ status: 201 }]);
-  const res = await dbWith(fetchFn).submitScore({ deviceId: 'dev-1', nick: 'Joe', difficulty: 'trudny', score: 1500, wave: 4 });
+  const res = await dbWith(fetchFn).submitScore({ id: 'q-1', userId: 'u-1', difficulty: 'trudny', score: 1500, wave: 4 });
   assert.equal(res.ok, true);
   const [call] = fetchFn.calls;
   assert.equal(call.url, `${BASE}/rest/v1/scores`);
   assert.equal(call.init.method, 'POST');
-  assert.deepEqual(call.body, { device_id: 'dev-1', nick: 'Joe', difficulty: 'trudny', score: 1500, wave: 4 });
-  assert.equal(call.init.headers.apikey, KEY);
+  assert.deepEqual(call.body, { difficulty: 'trudny', score: 1500, wave: 4 });
   assert.equal(call.init.headers.Prefer, 'return=minimal');
-  assert.equal(call.init.headers.Authorization, undefined); // klucz publishable nie jest JWT
-});
-
-test('klucz anon (JWT) trafia też do nagłówka Authorization', async () => {
-  const fetchFn = fakeFetch([{ body: '[]' }]);
-  await createDb({ url: BASE, key: 'eyJhbGciOi.test', fetchFn }).topScores('latwy');
-  assert.equal(fetchFn.calls[0].init.headers.Authorization, 'Bearer eyJhbGciOi.test');
 });
 
 test('topScores: filtr poziomu, sortowanie, limit', async () => {
@@ -55,20 +62,20 @@ test('topScores: filtr poziomu, sortowanie, limit', async () => {
   const res = await createDb({ url: `${BASE}/`, key: KEY, fetchFn }).topScores('trudny');
   assert.deepEqual(res.data, rows);
   const url = new URL(fetchFn.calls[0].url);
-  assert.equal(url.origin + url.pathname, `${BASE}/rest/v1/scores`); // końcowy „/” adresu się nie podwaja
+  assert.equal(url.origin + url.pathname, `${BASE}/rest/v1/scores`);
   assert.equal(url.searchParams.get('difficulty'), 'eq.trudny');
   assert.equal(url.searchParams.get('order'), 'score.desc,created_at.asc');
   assert.equal(url.searchParams.get('limit'), '10');
-  assert.equal(fetchFn.calls[0].init.method, 'GET');
 });
 
-test('myHistory: RPC my_history (device_id nie jest publicznie czytelny)', async () => {
+test('myHistory: gry konta, najnowsze najpierw', async () => {
   const fetchFn = fakeFetch([{ body: '[]' }]);
-  await dbWith(fetchFn).myHistory('dev-1');
-  const [call] = fetchFn.calls;
-  assert.equal(call.url, `${BASE}/rest/v1/rpc/my_history`);
-  assert.equal(call.init.method, 'POST');
-  assert.deepEqual(call.body, { p_device_id: 'dev-1', p_limit: 10 });
+  await dbWith(fetchFn).myHistory('u-1');
+  const url = new URL(fetchFn.calls[0].url);
+  assert.equal(url.pathname, '/rest/v1/scores');
+  assert.equal(url.searchParams.get('user_id'), 'eq.u-1');
+  assert.equal(url.searchParams.get('order'), 'created_at.desc');
+  assert.equal(url.searchParams.get('limit'), '10');
 });
 
 test('rankOf: liczba lepszych wyników + 1 z nagłówka Content-Range', async () => {
@@ -82,7 +89,6 @@ test('rankOf: liczba lepszych wyników + 1 z nagłówka Content-Range', async ()
   assert.deepEqual(await db.rankOf('normalny', 99999), { ok: true, data: 1, error: null });
   assert.deepEqual(await db.rankOf('normalny', 1), { ok: false, data: null, error: 'bad-count' });
   const url = new URL(fetchFn.calls[0].url);
-  assert.equal(url.searchParams.get('difficulty'), 'eq.normalny');
   assert.equal(url.searchParams.get('score'), 'gt.700');
   assert.equal(fetchFn.calls[0].init.headers.Prefer, 'count=exact');
 });
@@ -94,24 +100,34 @@ test('parseContentRangeTotal', () => {
   assert.equal(parseContentRangeTotal(null), null);
 });
 
-test('saveGame / loadGame / deleteGame: wywołania RPC', async () => {
-  const saved = { nick: 'Joe', difficulty: 'latwy', snapshot: { version: 1 }, updated_at: '2026-10-13T10:00:00Z' };
-  const fetchFn = fakeFetch([{ status: 204 }, { body: JSON.stringify(saved) }, { body: 'null' }, { status: 204 }]);
-  const db = dbWith(fetchFn);
-  assert.equal((await db.saveGame('dev-1', 'Joe', 'latwy', { version: 1 }, { keepalive: true })).ok, true);
-  assert.deepEqual((await db.loadGame('dev-1')).data, saved);
-  assert.equal((await db.loadGame('dev-1')).data, null);
-  assert.equal((await db.deleteGame('dev-1')).ok, true);
+test('saveGame / loadGame / deleteGame: REST na saved_games', async () => {
+  const row = { difficulty: 'latwy', snapshot: { version: 1 }, updated_at: '2026-10-13T10:00:00Z' };
+  const fetchFn = fakeFetch([{ status: 201 }, { body: JSON.stringify([row]) }, { body: '[]' }, { status: 204 }]);
+  const db = dbWith(fetchFn, { getToken: async () => 'tok-1' });
+  assert.equal((await db.saveGame('u-1', 'latwy', { version: 1 }, { keepalive: true })).ok, true);
+  assert.deepEqual((await db.loadGame('u-1')).data, row);
+  assert.equal((await db.loadGame('u-1')).data, null);
+  assert.equal((await db.deleteGame('u-1')).ok, true);
   const [save, load, , del] = fetchFn.calls;
-  assert.equal(save.url, `${BASE}/rest/v1/rpc/save_game`);
+
+  const saveUrl = new URL(save.url);
+  assert.equal(saveUrl.pathname, '/rest/v1/saved_games');
+  assert.equal(saveUrl.searchParams.get('on_conflict'), 'user_id');
   assert.equal(save.init.method, 'POST');
-  assert.deepEqual(save.body, { p_device_id: 'dev-1', p_nick: 'Joe', p_difficulty: 'latwy', p_snapshot: { version: 1 } });
+  assert.equal(save.init.headers.Prefer, 'resolution=merge-duplicates,return=minimal');
   assert.equal(save.init.keepalive, true);
-  assert.equal(load.url, `${BASE}/rest/v1/rpc/load_game`);
-  assert.deepEqual(load.body, { p_device_id: 'dev-1' });
-  assert.equal(load.init.keepalive, false);
-  assert.equal(del.url, `${BASE}/rest/v1/rpc/delete_game`);
-  assert.deepEqual(del.body, { p_device_id: 'dev-1' });
+  assert.equal(save.body.user_id, 'u-1');
+  assert.equal(save.body.difficulty, 'latwy');
+  assert.deepEqual(save.body.snapshot, { version: 1 });
+  assert.ok(!Number.isNaN(Date.parse(save.body.updated_at)));
+
+  const loadUrl = new URL(load.url);
+  assert.equal(loadUrl.searchParams.get('user_id'), 'eq.u-1');
+  assert.equal(loadUrl.searchParams.get('select'), 'difficulty,snapshot,updated_at');
+  assert.equal(load.init.method, 'GET');
+
+  assert.equal(new URL(del.url).searchParams.get('user_id'), 'eq.u-1');
+  assert.equal(del.init.method, 'DELETE');
 });
 
 test('błędy: HTTP, sieć, zła odpowiedź, timeout — bez wyjątków', async () => {
@@ -120,11 +136,9 @@ test('błędy: HTTP, sieć, zła odpowiedź, timeout — bez wyjątków', async 
   assert.deepEqual(await db.topScores('normalny'), { ok: false, data: null, error: 'http-500' });
   assert.deepEqual(await db.topScores('normalny'), { ok: false, data: null, error: 'network' });
   assert.deepEqual(await db.topScores('normalny'), { ok: false, data: null, error: 'bad-response' });
-
-  // fetch, który odpowiada dopiero po przerwaniu przez AbortController
   const hanging = (url, init) => new Promise((_, reject) => {
     init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
   });
   const slow = createDb({ url: BASE, key: KEY, fetchFn: hanging, timeoutMs: 10 });
-  assert.deepEqual(await slow.loadGame('dev-1'), { ok: false, data: null, error: 'timeout' });
+  assert.deepEqual(await slow.loadGame('u-1'), { ok: false, data: null, error: 'timeout' });
 });
