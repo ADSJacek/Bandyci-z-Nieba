@@ -17,7 +17,7 @@ let background = null;
 
 // Opcjonalna grafika tła z pliku; dopóki się nie wczyta (lub gdy jej brak) — tło rysowane kodem
 const bgImage = new Image();
-bgImage.src = 'assets/background.png';
+bgImage.src = 'assets/jacek.png';
 
 export function drawBackground(ctx) {
   if (bgImage.complete && bgImage.naturalWidth) {
