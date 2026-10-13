@@ -29,7 +29,7 @@ Status: do przeglądu
   - Wyjątek: opcjonalne tło `assets/background.png` (4:3, np. 800×600 lub 1600×1200). Gdy pliku brak, używane jest tło rysowane kodem.
 - Dźwięk generowany przez **Web Audio API**, bez plików audio.
 - Zapis rekordów, ustawień, profilu gracza i kopii przerwanej gry w **localStorage**.
-- **Supabase** (Postgres) jako baza wyników i przerwanych gier — wyłącznie przez `fetch` do REST API (PostgREST), **bez bibliotek**. Konfiguracja w `js/db-config.js`; bez niej gra działa offline.
+- **Supabase** (Postgres + Auth) jako baza wyników, przerwanych gier i kont graczy — wyłącznie przez `fetch` do REST API (`/rest/v1`, `/auth/v1`), **bez bibliotek**. Konfiguracja w `js/db-config.js`; bez niej gra działa offline jako gość.
 - Stała rozdzielczość logiczna canvasu **800×600**, skalowana do okna z zachowaniem proporcji.
 
 ## 3. Architektura
@@ -54,9 +54,11 @@ js/
   render.js         – tło (pustynia, kaktusy, zachód słońca), HUD, ekrany
   audio.js          – efekty dźwiękowe (Web Audio)
   storage.js        – rekordy i ustawienia w localStorage
-  profile.js        – anonimowy identyfikator urządzenia i pseudonim
+  profile.js        – zasady loginu gracza
+  auth.js           – logowanie przez Supabase Auth (login + hasło, sesja, token)
+  http.js           – wspólne zapytanie HTTP z JSON-em i limitem czasu
   db-config.js      – adres i publiczny klucz Supabase
-  db.js             – klient REST Supabase (fetch, timeout, tryb offline)
+  db.js             – klient REST Supabase (token gracza, tryb offline)
   serial.js         – odtwarzanie encji z zapisu JSON
   snapshot.js       – pełny zapis i odtwarzanie stanu rozgrywki
   persistence.js    – zapis/wznawianie gry, wyniki z kolejką offline, ranking, historia
@@ -87,9 +89,10 @@ supabase/migrations – schemat bazy (tabele, RLS, funkcje RPC)
 | Enter | start gry / powrót do menu |
 | R | restart na ekranie game over |
 | C | wznowienie przerwanej gry (w menu) |
-| N | zmiana pseudonimu (w menu) |
+| L | wylogowanie / logowanie (w menu) |
+| Tab | przełączenie pola na ekranie logowania |
 | H | historia gier (w menu) |
-| Backspace | usuwanie znaku przy wpisywaniu pseudonimu |
+| Backspace | usuwanie znaku na ekranie logowania |
 
 ### 4.2 Szeryf (gracz)
 
@@ -180,12 +183,12 @@ Wartości są punktem startowym do strojenia.
 
 ## 5. Ekrany i interfejs
 
-1. **Pseudonim** — przy pierwszym uruchomieniu (i klawiszem N w menu): wpisanie pseudonimu 1–12 znaków (litery, cyfry, spacja, `_`, `-`); Enter zatwierdza, Esc anuluje zmianę.
-2. **Menu** — tytuł „BANDYCI Z NIEBA” w stylu listu gończego „WANTED”, rekord dla wybranego poziomu, pseudonim gracza, wybór poziomu trudności, „C — wznów” gdy jest przerwana gra, **TOP 10** dla wybranego poziomu, skrót sterowania. Enter = nowa gra.
-3. **Historia** — ostatnie 10 gier z tego urządzenia: data, poziom, fala, wynik.
+1. **Logowanie „KTO JEDZIE?”** — przy braku zapamiętanej sesji: ZALOGUJ / ZAREJESTRUJ / GRAJ JAKO GOŚĆ; formularz: login (1–12 znaków: litery, cyfry, spacja, `_`, `-`) i hasło (min. 6 znaków, wyświetlane jako `•`); błędy po polsku.
+2. **Menu** — tytuł „BANDYCI Z NIEBA” w stylu listu gończego „WANTED”, rekord dla wybranego poziomu, login gracza albo „gość”, wybór poziomu trudności, „C — wznów” gdy jest przerwana gra, **TOP 10** dla wybranego poziomu, skrót sterowania. Enter = nowa gra, L = wyloguj (zalogowany) / zaloguj (gość).
+3. **Historia** — ostatnie 10 gier konta: data, poziom, fala, wynik — tylko dla zalogowanych.
 4. **Gra** — HUD u góry: wynik, rekord, życia (ikony kapeluszy), numer fali, aktywny bonus z paskiem czasu.
 5. **Pauza** — półprzezroczysta nakładka z napisem „PAUZA”; wznowiona gra startuje w pauzie.
-6. **Game over** — „WANTED: DEAD”, wynik końcowy, „NOWY REKORD!” gdy pobity, miejsce w rankingu (lub informacja o wysłaniu później); Enter = menu, R = restart.
+6. **Game over** — „WANTED: DEAD”, wynik końcowy, „NOWY REKORD!” gdy pobity, miejsce w rankingu (lub informacja o wysłaniu później); gość: „Gość — wynik nie trafia do rankingu”; Enter = menu, R = restart.
 
 ### Styl wizualny
 
@@ -204,18 +207,19 @@ Wartości są punktem startowym do strojenia.
 ### localStorage
 - `arcaneInvaders.highscores` → `{ latwy, normalny, trudny }` — lokalny najlepszy wynik na poziom.
 - `arcaneInvaders.muted` → `true` / `false`.
-- `arcaneInvaders.deviceId` → losowy UUID urządzenia (bez logowania).
-- `arcaneInvaders.nick` → pseudonim gracza.
-- `arcaneInvaders.savedGame` → kopia ostatniego zapisu przerwanej gry (albo znacznik `discarded` po jej zakończeniu).
+- `arcaneInvaders.session` → sesja Supabase Auth (tokeny i `{ id, login }`; **bez hasła**).
+- `arcaneInvaders.savedGame:<właściciel>` → kopia ostatniego zapisu przerwanej gry osobno dla gościa (`gosc`) i każdego konta (albo znacznik `discarded`).
 - `arcaneInvaders.scoreQueue` → wyniki niewysłane do bazy (maks. 20), dosyłane przy wejściu do menu.
 - Każdy odczyt i zapis w `try/catch`; przy braku dostępu do localStorage gra działa dalej.
 
 ### Supabase
-- Tabela `scores` — każda zakończona gra: pseudonim, poziom, wynik, fala, data. Odczyt publiczny **bez kolumny `device_id`** (identyfikator otwiera dostęp do zapisu gry), dopisywanie dozwolone, zmiana i usuwanie zabronione. Historię gracza zwraca funkcja `my_history`.
-- Tabela `saved_games` — jedna przerwana gra na urządzenie (pełny snapshot JSON). Dostęp wyłącznie przez funkcje `save_game`, `load_game`, `delete_game`.
+- **Konta:** Supabase Auth, login zamieniany na techniczny e-mail `u<hex loginu>@bandyci.local` (potwierdzanie e-maili wyłączone). Tabela `profiles` (id konta, unikalny login) zakładana triggerem przy rejestracji.
+- Tabela `scores` — wynik każdej zakończonej gry zalogowanego gracza: konto, login (wpisywany przez bazę), poziom, wynik, fala, data. Odczyt publiczny; dopisuje tylko zalogowany i tylko jako on sam; zmiana i usuwanie zabronione.
+- Tabela `saved_games` — jedna przerwana gra na konto; odczyt, zapis i usuwanie tylko przez właściciela (RLS po `auth.uid()`).
+- Gość: wznawianie i rekord tylko lokalnie; wyniki nie trafiają do bazy.
 - Zapis przerwanej gry: przy pauzie, ukryciu karty, wyjściu do menu, zamknięciu karty oraz co 10 s gry. Usunięcie: przy game over i rozpoczęciu nowej gry.
 - Wznowienie z nowszego z zapisów: lokalnego lub z bazy. Zapis w innej wersji formatu jest odrzucany z komunikatem.
-- Schemat w `supabase/migrations/`. Klucz publiczny w `js/db-config.js` jest jawny z założenia — bez logowania nie da się całkowicie wykluczyć sfałszowanych wyników.
+- Schemat w `supabase/migrations/`. Klucz publiczny w `js/db-config.js` jest jawny z założenia — dostęp chronią RLS i konta; zalogowany gracz nadal może wysłać zawyżony wynik ręcznym zapytaniem (brak walidacji wyników po stronie serwera).
 
 ## 8. Testy
 
@@ -226,7 +230,8 @@ Wartości są punktem startowym do strojenia.
   - ruch formacji (odbicie od krawędzi, zejście w dół),
   - wybór strzelającego bandyty (najniższy w kolumnie),
   - odczyt/zapis rekordów (z atrapą localStorage),
-  - profil gracza (walidacja pseudonimu, UUID także bez `crypto.randomUUID`),
+  - logowanie (techniczny e-mail, rejestracja, błędy, odświeżanie tokenu, uszkodzona sesja),
+  - zasady loginu (walidacja, znaki dozwolone),
   - klient bazy (atrapa `fetch`: adresy, nagłówki, błędy, timeout),
   - snapshot gry (zapis → JSON → odtworzenie, odrzucanie uszkodzonych zapisów),
   - warstwa zapisu (kolejność zapisów, kolejka offline, wybór nowszego zapisu),
@@ -238,5 +243,5 @@ Wartości są punktem startowym do strojenia.
 - Sterowanie dotykiem i myszą, wersja mobilna.
 - Muzyka w tle.
 - Tryb wieloosobowy.
-- Logowanie graczy i synchronizacja między urządzeniami; walidacja wyników po stronie serwera.
+- Logowanie przez e-mail / Google / GitHub, reset hasła, zmiana loginu i usuwanie konta z gry; walidacja wyników po stronie serwera.
 - Pliki graficzne i dźwiękowe.
