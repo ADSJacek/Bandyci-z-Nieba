@@ -84,13 +84,13 @@ test('rysowanie we wszystkich stanach nie rzuca wyjątków', async () => {
   }
 });
 
-test('pociąg częściej: pierwszy po 3–8 s, kolejne co 10–18 s', () => {
+test('pociąg od razu po starcie, kolejne co 10–18 s; tory na dole ekranu', () => {
   const a = new Ambient(1);
-  assert.ok(a.trainTimer >= VISUALS.trainFirstMin && a.trainTimer <= VISUALS.trainFirstMax);
-  assert.ok(VISUALS.trainMinDelay === 10 && VISUALS.trainMaxDelay === 18);
-  a.trainTimer = 0.01;
-  run(a, 0.1);
+  a.update(0.05);
+  assert.ok(a.train, 'pociąg w pierwszej klatce');
   assert.ok(a.trainTimer >= 10 && a.trainTimer <= 18);
+  assert.equal(VISUALS.trainY, 548); // pod napisem „↑ ↓ — wybór / ENTER — dalej” (y = 490)
+  assert.equal(VISUALS.trainScale, 1.5); // pociąg i jeźdźcy większe niż pierwotnie
 });
 
 test('napad: 2–4 jeźdźców dogania wagony i strzela z łuków', () => {

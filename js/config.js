@@ -144,12 +144,11 @@ export const VISUALS = {
   dustGustMaxDelay: 30,
   dustGustTime: 3,       // czas trwania podmuchu (s)
   // Pociąg parowy na horyzoncie
-  trainFirstMin: 3,      // s do pierwszego przejazdu
-  trainFirstMax: 8,
   trainMinDelay: 10,     // s między przejazdami
   trainMaxDelay: 18,
   trainSpeed: 28,        // px/s
-  trainY: 424,           // linia kół pociągu (horyzont tła)
+  trainY: 548,           // linia kół pociągu — dół ekranu, pod napisami menu i logowania
+  trainScale: 1.5,       // powiększenie pociągu i jeźdźców
   trainCars: 4,
   trainPuffInterval: 0.35, // s między kłębami dymu
   smokeLife: 3,          // czas życia kłębu dymu (s)
