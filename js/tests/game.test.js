@@ -236,6 +236,41 @@ test('utrata sesji: gracz staje się gościem, komunikat w menu', () => {
   assert.equal(game.playerName, 'gość');
 });
 
+// --- Suwak ANIMACJE -------------------------------------------------------------
+
+test('menu: ← → zmienia natężenie animacji o 10% w granicach 0–100% i zapamiętuje je', () => {
+  const { game } = makeGame();
+  assert.equal(game.animLevel, 1);
+  step(game, { press: ['ArrowRight'] });
+  assert.equal(game.animLevel, 1);
+  step(game, { press: ['ArrowLeft'] });
+  step(game, { press: ['ArrowLeft'] });
+  assert.equal(game.animLevel, 0.8);
+  assert.equal(game.ambient.level, 0.8);
+  assert.equal(game.effects.level, 0.8);
+  assert.equal(game.storage.loadAnimLevel(), 0.8);
+  for (let i = 0; i < 12; i++) step(game, { press: ['ArrowLeft'] });
+  assert.equal(game.animLevel, 0);
+  assert.equal(game.difficultyIndex, 1); // poziom trudności bez zmian
+});
+
+test('natężenie z poprzedniej sesji; wstrząs ekranu skalowany, przy 0% brak', () => {
+  const backend = mockBackend();
+  createStorage(backend).saveAnimLevel(0.5);
+  const game = new Game({
+    input: new FakeInput(), audio: { muted: false, setMuted() {}, toggleMute() {}, play() {} },
+    storage: createStorage(backend), persistence: persistenceSpy(), auth: fakeAuth({ id: 'u-1', login: 'Joe' }),
+  });
+  assert.equal(game.animLevel, 0.5);
+  assert.equal(game.ambient.level, 0.5);
+  game.shakeScreen(10);
+  assert.equal(game.shakePower, 5);
+  game.shakeTime = 0;
+  game.setAnimLevel(0);
+  game.shakeScreen(10);
+  assert.equal(game.shakeTime, 0);
+});
+
 // --- Rozgrywka (jak dotąd) -----------------------------------------------------
 
 test('menu: zmiana poziomu odświeża ranking, H otwiera historię', () => {

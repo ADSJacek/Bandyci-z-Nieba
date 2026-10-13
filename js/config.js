@@ -131,6 +131,27 @@ export const VISUALS = {
   shakeBoss: 10,         // siła wstrząsu po pokonaniu bossa
   shakeDecay: 0.35,      // czas wygasania wstrząsu (s)
   flashTime: 0.35,       // czas błysku ekranu (s)
+  // Ptaki: klucz przelatujący przez niebo i sępy krążące nad górami
+  birdMinDelay: 8,       // s między kluczami ptaków
+  birdMaxDelay: 16,
+  birdFlockMin: 3,
+  birdFlockMax: 7,
+  birdSpeed: 70,         // px/s
+  circlerCount: 2,       // sępy krążące wysoko (przy 100% animacji)
+  // Pył dryfujący nad ziemią; co jakiś czas podmuch wiatru
+  dustCount: 30,         // drobiny przy 100% animacji
+  dustGustMinDelay: 15,
+  dustGustMaxDelay: 30,
+  dustGustTime: 3,       // czas trwania podmuchu (s)
+  // Pociąg parowy na horyzoncie
+  trainMinDelay: 25,     // s między przejazdami
+  trainMaxDelay: 45,
+  trainSpeed: 28,        // px/s
+  trainY: 424,           // linia kół pociągu (horyzont tła)
+  trainCars: 4,
+  trainPuffInterval: 0.35, // s między kłębami dymu
+  smokeLife: 3,          // czas życia kłębu dymu (s)
+  animStep: 0.1,         // krok suwaka „ANIMACJE” (10%)
 };
 
 export const DIFFICULTIES = {
