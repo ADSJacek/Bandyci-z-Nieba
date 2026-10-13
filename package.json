@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "npx serve .",
-    "test": "node --test"
+    "test": "node --test",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0"
