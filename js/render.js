@@ -336,8 +336,19 @@ export function drawMenu(ctx, game) {
 
   // Prawy panel: gracz, poziom trudności, wznowienie, ranking, sterowanie
   const rx = 600;
-  const who = game.auth.user ? `szeryf: ${game.playerName}` : 'gość — wyniki nie trafiają do rankingu';
-  text(ctx, who, rx, 34, { size: 15, font: FONT_TEXT, color: '#f4c27a' });
+  if (game.auth.user) {
+    // Login i wylogowanie obok siebie (wyśrodkowane razem), wylogowanie na złoto
+    const name = `szeryf: ${game.playerName}`;
+    const action = '·  L — wyloguj';
+    const gap = 10;
+    ctx.font = `15px ${FONT_TEXT}`;
+    const nameW = ctx.measureText(name).width;
+    const x0 = rx - (nameW + gap + ctx.measureText(action).width) / 2;
+    text(ctx, name, x0, 34, { size: 15, font: FONT_TEXT, color: '#f4c27a', align: 'left' });
+    text(ctx, action, x0 + nameW + gap, 34, { size: 15, font: FONT_TEXT, color: GOLD, align: 'left' });
+  } else {
+    text(ctx, 'gość — wyniki nie trafiają do rankingu', rx, 34, { size: 15, font: FONT_TEXT, color: '#f4c27a' });
+  }
   text(ctx, 'POZIOM TRUDNOŚCI', rx, 74, { size: 22 });
   DIFFICULTY_ORDER.forEach((key, i) => {
     const y = 112 + i * 38;
@@ -375,7 +386,7 @@ export function drawMenu(ctx, game) {
   const controls = [
     '← → / A D — ruch  ·  SPACJA — strzał',
     'P / ESC — pauza · M — dźwięk · ↑ ↓ — poziom · ← → — animacje',
-    game.auth.user ? 'L — wyloguj  ·  H — historia gier' : 'L — zaloguj się lub załóż konto',
+    game.auth.user ? 'H — historia gier' : 'L — zaloguj się lub załóż konto',
   ];
   controls.forEach((line, i) => text(ctx, line, rx, 520 + i * 20, { size: 13, font: FONT_TEXT }));
 }

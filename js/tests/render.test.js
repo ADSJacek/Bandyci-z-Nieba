@@ -82,3 +82,30 @@ test('formatDate: data i godzina po polsku, zła data → kreska', () => {
   assert.equal(formatDate(iso), '13.10.2026 09:05');
   assert.equal(formatDate('zła'), '—');
 });
+
+// Kontekst nagrywający napisy (fillText) — reszta metod jak w atrapie
+function recordingContext() {
+  const texts = [];
+  const ctx = new Proxy({}, {
+    get: (target, prop) => (prop === 'fillText' ? (str, x, y) => texts.push({ str: String(str), x, y }) : fakeContext[prop]),
+    set: () => true,
+  });
+  return { ctx, texts };
+}
+
+test('menu: wylogowanie widoczne u góry obok loginu, nie dubluje się na dole', () => {
+  const { ctx, texts } = recordingContext();
+  drawMenu(ctx, screenGame());
+  const top = texts.filter((t) => t.y < 60).map((t) => t.str);
+  assert.ok(top.some((s) => s.includes('szeryf: Joe')), top.join(' | '));
+  assert.ok(top.some((s) => s.includes('L — wyloguj')), top.join(' | '));
+  const bottom = texts.filter((t) => t.y > 500).map((t) => t.str);
+  assert.ok(!bottom.some((s) => s.includes('L — wyloguj')), bottom.join(' | '));
+  assert.ok(bottom.some((s) => s.includes('H — historia gier')));
+});
+
+test('menu gościa: bez opcji wylogowania u góry', () => {
+  const { ctx, texts } = recordingContext();
+  drawMenu(ctx, screenGame({ user: null }));
+  assert.ok(!texts.some((t) => t.str.includes('wyloguj')));
+});
