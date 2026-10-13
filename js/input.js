@@ -19,7 +19,10 @@ export class Input {
       const code = e.code === 'NumpadEnter' ? 'Enter' : e.code;
       if (!e.repeat) this.pressed.add(code);
       this.down.add(code);
-      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) this.typed.push(e.key);
+      // Polskie litery piszemy z AltGr (Windows: Ctrl+Alt) albo Option (macOS: Alt) —
+      // odrzucamy tylko skróty z Cmd lub z samym Ctrl
+      const shortcut = e.metaKey || (e.ctrlKey && !e.altKey);
+      if (e.key.length === 1 && !shortcut) this.typed.push(e.key);
     });
     target.addEventListener('keyup', (e) => {
       const code = e.code === 'NumpadEnter' ? 'Enter' : e.code;
