@@ -112,3 +112,16 @@ test('kolejka wyników: uszkodzone dane → pusta lista', () => {
   const storage = createStorage(mockStorage({ [SCORE_QUEUE_KEY]: '{"a":1}' }));
   assert.deepEqual(storage.loadScoreQueue(), []);
 });
+
+test('natężenie animacji: domyślnie 100%, zapis i odczyt, uszkodzone dane', () => {
+  const backend = mockStorage();
+  const storage = createStorage(backend);
+  assert.equal(storage.loadAnimLevel(), 1);
+  assert.equal(storage.saveAnimLevel(0.4), true);
+  assert.equal(storage.loadAnimLevel(), 0.4);
+  backend.data['arcaneInvaders.animLevel'] = 'abc';
+  assert.equal(storage.loadAnimLevel(), 1);
+  backend.data['arcaneInvaders.animLevel'] = '7';
+  assert.equal(storage.loadAnimLevel(), 1);
+  assert.equal(createStorage(brokenStorage).loadAnimLevel(), 1);
+});

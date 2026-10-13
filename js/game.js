@@ -11,7 +11,7 @@ import { serializeGame, restoreGame } from './snapshot.js';
 import { NOTICE_INCOMPATIBLE } from './persistence.js';
 import { NICK_CHAR } from './profile.js';
 import { Effects } from './effects.js';
-import { Ambient } from './ambient.js';
+import { Ambient, stepLevel } from './ambient.js';
 import { Player } from './entities/player.js';
 import { Formation, isBossWave } from './entities/enemies.js';
 import { Boss } from './entities/boss.js';
@@ -42,7 +42,9 @@ export class Game {
     this.highscores = storage.loadHighscores();
     this.audio.setMuted(storage.loadMuted());
     this.effects = new Effects();
-    this.ambient = new Ambient();
+    this.animLevel = storage.loadAnimLevel(); // natężenie dekoracji 0–1 (suwak „ANIMACJE”)
+    this.ambient = new Ambient(this.animLevel);
+    this.effects.level = this.animLevel;
     this.time = 0;
     this.score = 0;
     this.newRecord = false;
@@ -239,6 +241,8 @@ export class Game {
         if (input.wasPressed('ArrowUp')) this.difficultyIndex = (this.difficultyIndex + n - 1) % n;
         if (input.wasPressed('ArrowDown')) this.difficultyIndex = (this.difficultyIndex + 1) % n;
         if (this.difficultyIndex !== before) this.persistence.refreshLeaderboard(this.difficultyKey);
+        if (input.wasPressed('ArrowLeft')) this.setAnimLevel(stepLevel(this.animLevel, -1));
+        if (input.wasPressed('ArrowRight')) this.setAnimLevel(stepLevel(this.animLevel, 1));
         if (input.wasPressed('Enter')) this.startGame();
         else if (input.wasPressed('KeyC')) this.resumeGame();
         else if (input.wasPressed('KeyL')) this.pressLogout(armed);
@@ -550,8 +554,18 @@ export class Game {
     }
   }
 
-  // Silniejszy wstrząs wygrywa ze słabszym, który jeszcze trwa
+  // Suwak „ANIMACJE”: tło, odłamki, wstrząsy i błyski; ustawienie zapamiętane
+  setAnimLevel(level) {
+    this.animLevel = level;
+    this.ambient.setLevel(level);
+    this.effects.level = level;
+    this.storage.saveAnimLevel(level);
+  }
+
+  // Silniejszy wstrząs wygrywa ze słabszym, który jeszcze trwa; siła zależy od suwaka animacji
   shakeScreen(power) {
+    power *= this.animLevel;
+    if (power <= 0) return;
     const current = this.shakeTime > 0 ? this.shakePower : 0;
     this.shakePower = Math.max(power, current);
     this.shakeTime = VISUALS.shakeDecay;
@@ -620,7 +634,7 @@ export class Game {
     ctx.restore();
 
     drawVignette(ctx);
-    drawFlash(ctx, this.flashColor, this.flashTime / VISUALS.flashTime);
+    drawFlash(ctx, this.flashColor, (this.flashTime / VISUALS.flashTime) * this.animLevel);
     drawHUD(ctx, this);
     if (this.boss && !this.boss.entering) drawBossBar(ctx, this.boss);
     if (this.bannerTimer > 0) drawBanner(ctx, this);

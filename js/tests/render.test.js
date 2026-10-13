@@ -9,7 +9,7 @@ const { drawMenu, drawLogin, drawHistory, drawGameOver, formatDate, LOGIN_OPTION
 const rows = [{ nick: 'Joe', difficulty: 'normalny', score: 900, wave: 3, created_at: '2026-10-13T10:05:00Z' }];
 const form = (extra = {}) => ({ step: 'form', choice: 0, mode: 'signin', field: 0, login: 'Joe', password: 'tajne', busy: false, error: null, ...extra });
 
-function screenGame({ persistence = {}, user = { id: 'u-1', login: 'Joe' }, loginForm = form(), logoutArmed = false } = {}) {
+function screenGame({ persistence = {}, user = { id: 'u-1', login: 'Joe' }, loginForm = form(), logoutArmed = false, animLevel = 1 } = {}) {
   return {
     time: 1.3,
     difficultyIndex: 1,
@@ -20,6 +20,7 @@ function screenGame({ persistence = {}, user = { id: 'u-1', login: 'Joe' }, logi
     record: 100,
     newRecord: false,
     playerName: user?.login ?? 'gość',
+    animLevel,
     auth: { user },
     logoutArmed,
     loginForm,
@@ -65,8 +66,8 @@ test('ekrany rysują się we wszystkich stanach danych', () => {
   for (const persistence of persistenceVariants) {
     for (const user of [{ id: 'u-1', login: 'Joe' }, null]) {
       for (const loginForm of loginForms) {
-        for (const logoutArmed of [false, true]) {
-          const game = screenGame({ persistence, user, loginForm, logoutArmed });
+        for (const [logoutArmed, animLevel] of [[false, 1], [true, 0], [false, 0.5]]) {
+          const game = screenGame({ persistence, user, loginForm, logoutArmed, animLevel });
           for (const draw of [drawMenu, drawLogin, drawHistory, drawGameOver]) {
             assert.doesNotThrow(() => draw(fakeContext, game), draw.name);
           }

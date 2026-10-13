@@ -8,6 +8,7 @@ export class Effects {
     this.particles = [];
     this.popups = [];
     this.muzzles = [];
+    this.level = 1; // natężenie animacji (suwak w menu) — mnoży liczbę odłamków
   }
 
   clear() {
@@ -22,7 +23,8 @@ export class Effects {
   }
 
   burst(x, y, color, count = 12, speed = 140) {
-    for (let i = 0; i < count; i++) {
+    const n = Math.round(count * this.level);
+    for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const v = speed * (0.4 + Math.random() * 0.6);
       this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: 0.6, t: 0, color });

@@ -356,26 +356,41 @@ export function drawMenu(ctx, game) {
   const d = game.difficulty;
   text(ctx, `życia: ${d.lives}  ·  punkty ×${d.scoreMultiplier.toFixed(1)}`, rx, 222, { size: 14, font: FONT_TEXT });
 
-  if (blink(game.time, 1)) text(ctx, 'ENTER — NOWA GRA', rx, 254, { size: 24, color: GOLD });
+  drawAnimSlider(ctx, game.animLevel, rx, 248);
+
+  if (blink(game.time, 1)) text(ctx, 'ENTER — NOWA GRA', rx, 278, { size: 24, color: GOLD });
 
   const p = game.persistence;
   if (p.notice) {
-    text(ctx, p.notice, rx, 284, { size: 13, font: FONT_TEXT, color: '#ff8a6a' });
+    text(ctx, p.notice, rx, 306, { size: 13, font: FONT_TEXT, color: '#ff8a6a' });
   } else if (game.logoutArmed) {
-    text(ctx, 'L ponownie — wyloguj (przerwana gra zostaje na koncie)', rx, 284, { size: 13, font: FONT_TEXT, color: '#ff8a6a' });
+    text(ctx, 'L ponownie — wyloguj (przerwana gra zostaje na koncie)', rx, 306, { size: 13, font: FONT_TEXT, color: '#ff8a6a' });
   } else if (p.saved) {
     const level = DIFFICULTIES[p.saved.difficulty].label.toLowerCase();
-    text(ctx, `C — wznów: ${level}, fala ${p.saved.wave}, $ ${p.saved.score}`, rx, 284, { size: 14, font: FONT_TEXT, color: GOLD });
+    text(ctx, `C — wznów: ${level}, fala ${p.saved.wave}, $ ${p.saved.score}`, rx, 306, { size: 14, font: FONT_TEXT, color: GOLD });
   }
 
-  drawLeaderboard(ctx, p.leaderboard, d.label, rx, 314);
+  drawLeaderboard(ctx, p.leaderboard, d.label, rx, 334);
 
   const controls = [
     '← → / A D — ruch  ·  SPACJA — strzał',
-    'P / ESC — pauza  ·  M — dźwięk  ·  ↑ ↓ — poziom',
+    'P / ESC — pauza · M — dźwięk · ↑ ↓ — poziom · ← → — animacje',
     game.auth.user ? 'L — wyloguj  ·  H — historia gier' : 'L — zaloguj się lub załóż konto',
   ];
   controls.forEach((line, i) => text(ctx, line, rx, 520 + i * 20, { size: 13, font: FONT_TEXT }));
+}
+
+// Suwak natężenia animacji: 10 kresek, ← → zmienia o 10%
+function drawAnimSlider(ctx, level, cx, y) {
+  const filled = Math.round(level * 10);
+  text(ctx, 'ANIMACJE', cx - 150, y, { size: 14, font: FONT_TEXT, align: 'left' });
+  text(ctx, '◄', cx - 60, y, { size: 12, color: GOLD, shadow: false });
+  for (let i = 0; i < 10; i++) {
+    ctx.fillStyle = i < filled ? GOLD : 'rgba(255, 226, 168, 0.25)';
+    ctx.fillRect(cx - 48 + i * 10, y - 6, 7, 12);
+  }
+  text(ctx, '►', cx + 60, y, { size: 12, color: GOLD, shadow: false });
+  text(ctx, `${filled * 10}%`, cx + 150, y, { size: 14, font: FONT_TEXT, align: 'right' });
 }
 
 // TOP 10 dla wybranego poziomu; przy wczytywaniu zostają poprzednie wiersze
@@ -388,7 +403,7 @@ function drawLeaderboard(ctx, board, label, cx, y) {
     return;
   }
   rows.forEach((row, i) => {
-    const ry = y + 26 + i * 17;
+    const ry = y + 24 + i * 15;
     const style = { size: 13, font: FONT_TEXT, color: i === 0 ? GOLD : CREAM, shadow: false };
     text(ctx, `${i + 1}.`, cx - 146, ry, { ...style, align: 'right' });
     text(ctx, row.nick, cx - 138, ry, { ...style, align: 'left' });

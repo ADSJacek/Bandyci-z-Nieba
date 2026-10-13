@@ -6,6 +6,7 @@ export const HIGHSCORES_KEY = 'arcaneInvaders.highscores';
 export const MUTED_KEY = 'arcaneInvaders.muted';
 export const SAVED_GAME_KEY = 'arcaneInvaders.savedGame';
 export const SCORE_QUEUE_KEY = 'arcaneInvaders.scoreQueue';
+export const ANIM_LEVEL_KEY = 'arcaneInvaders.animLevel';
 
 export function emptyHighscores() {
   return { latwy: 0, normalny: 0, trudny: 0 };
@@ -89,6 +90,16 @@ export function createStorage(backend = defaultBackend()) {
       } catch {
         return false;
       }
+    },
+
+    // Natężenie animacji dekoracji 0–1 (suwak w menu); domyślnie 100%
+    loadAnimLevel() {
+      const value = readJson(ANIM_LEVEL_KEY);
+      return typeof value === 'number' && value >= 0 && value <= 1 ? value : 1;
+    },
+
+    saveAnimLevel(level) {
+      return writeJson(ANIM_LEVEL_KEY, level);
     },
 
     // Kopia przerwanej gry — osobna dla gościa ('gosc') i każdego konta (id użytkownika)
